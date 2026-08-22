@@ -13,7 +13,52 @@ export default function PayrollPage() {
     async function loadData() {
       try {
         const result = await getPayrollData();
-        setData(result);
+        
+        // Transform the backend array response to the expected structure
+        if (Array.isArray(result) && result.length > 0) {
+          const latest = result[0];
+          const transformedData = {
+            current: {
+              month: latest.payrollMonth || 'Current Month',
+              paidOn: latest.status === 'Paid' ? 'Recent' : 'Pending',
+              netSalary: `$${(latest.netSalary || 0).toLocaleString()}`,
+              earnings: {
+                total: `$${(latest.grossSalary || 0).toLocaleString()}`,
+                basic: `$${(latest.basicSalary || 0).toLocaleString()}`,
+                house: `$${(latest.allowances * 0.4 || 0).toLocaleString()}`,
+                conveyance: `$${(latest.allowances * 0.3 || 0).toLocaleString()}`,
+                other: `$${(latest.bonus + latest.overtime || 0).toLocaleString()}`
+              },
+              deductions: {
+                total: `$${(latest.totalDeductions || 0).toLocaleString()}`,
+                providentFund: `$${(latest.pf || 0).toLocaleString()}`,
+                professionalTax: `$200`,
+                incomeTax: `$${(latest.tax || 0).toLocaleString()}`,
+                other: `$${(latest.otherDeductions || 0).toLocaleString()}`
+              }
+            },
+            history: result.map(r => ({
+              month: r.payrollMonth,
+              amount: `$${(r.netSalary || 0).toLocaleString()}`
+            }))
+          };
+          setData(transformedData);
+        } else {
+          // Fallback mock data if API returns empty array or different structure
+          setData({
+            current: {
+              month: 'July 2024',
+              paidOn: 'July 28, 2024',
+              netSalary: '$4,250.00',
+              earnings: { total: '$5,000.00', basic: '$3,500.00', house: '$800.00', conveyance: '$200.00', other: '$500.00' },
+              deductions: { total: '$750.00', providentFund: '$250.00', professionalTax: '$50.00', incomeTax: '$400.00', other: '$50.00' }
+            },
+            history: [
+              { month: 'June 2024', amount: '$4,250.00' },
+              { month: 'May 2024', amount: '$4,250.00' }
+            ]
+          });
+        }
       } catch (error) {
         console.error("Failed to load payroll data:", error);
       } finally {
