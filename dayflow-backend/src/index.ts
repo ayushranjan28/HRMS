@@ -188,23 +188,6 @@ app.get('/api/auth/me', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/auth/switch-role', async (req: Request, res: Response) => {
-  if (!activeSessionUser) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-
-  const currentRole = activeSessionUser.role;
-  const newRole = currentRole === 'HR_ADMIN' ? Role.EMPLOYEE : Role.HR_ADMIN;
-
-  const updated = await prisma.user.update({
-    where: { id: activeSessionUser.id },
-    data: { role: newRole },
-    include: { privateInfo: true, salaryStructure: true },
-  });
-
-  activeSessionUser = updated;
-  res.json({ user: userToAuthUser(updated), employee: userToEmployee(updated) });
-});
 
 
 // ================= EMPLOYEES (ADMIN - from DB) =================

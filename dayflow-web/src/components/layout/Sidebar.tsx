@@ -35,18 +35,15 @@ export function Sidebar() {
   const [role, setRole] = useState<'HR' | 'Employee' | 'Admin'>('Employee');
 
   useEffect(() => {
-    // Synchronously check local storage to prevent flicker
     if (typeof window !== 'undefined') {
-      const localRole = localStorage.getItem('dayflow_role');
-      if (localRole) {
-        setRole(localRole === 'Admin' ? 'HR' : 'Employee');
-      } else {
-        const cachedUser = localStorage.getItem('dayflow_user');
-        if (cachedUser) {
-          try {
-            setRole(JSON.parse(cachedUser).role);
-          } catch (e) {}
-        }
+      // Clear legacy role token if it exists
+      localStorage.removeItem('dayflow_role');
+      
+      const cachedUser = localStorage.getItem('dayflow_user');
+      if (cachedUser) {
+        try {
+          setRole(JSON.parse(cachedUser).role);
+        } catch (e) {}
       }
     }
   }, []);
