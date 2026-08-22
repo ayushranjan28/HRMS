@@ -31,7 +31,7 @@ const adminNav = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [role, setRole] = useState<'HR' | 'Employee'>('HR');
+  const [role, setRole] = useState<'HR' | 'Employee' | 'Admin'>('HR');
 
   const checkUserRole = async () => {
     try {
@@ -39,9 +39,14 @@ export function Sidebar() {
       setRole(data.user.role);
     } catch (e) {
       if (typeof window !== 'undefined') {
-        const cachedUser = localStorage.getItem('dayflow_user');
-        if (cachedUser) {
-          setRole(JSON.parse(cachedUser).role);
+        const localRole = localStorage.getItem('dayflow_role');
+        if (localRole) {
+          setRole(localRole === 'Admin' ? 'HR' : 'Employee');
+        } else {
+          const cachedUser = localStorage.getItem('dayflow_user');
+          if (cachedUser) {
+            setRole(JSON.parse(cachedUser).role);
+          }
         }
       }
     }

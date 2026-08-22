@@ -7,6 +7,7 @@ import {
   User, Fingerprint, RefreshCw, Eye, 
   EyeOff, Lock 
 } from 'lucide-react';
+import { login } from '@/services/api';
 
 export default function AuthPage() {
   const router = useRouter();
@@ -53,7 +54,7 @@ export default function AuthPage() {
 
   const strength = getPasswordStrength(password);
 
-  const handleSignIn = (e: React.FormEvent) => {
+  const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -62,27 +63,39 @@ export default function AuthPage() {
       return;
     }
 
-    // Mock Login trigger based on the ID Rule: OI(First2)(Last2)(Year)(Serial)
+    const odooId = email.toUpperCase();
     const validLogins = ['OICOFI20200001', 'OIALMA20230002']; // Admin, Employee
-    if (validLogins.includes(email.toUpperCase())) {
-      setSuccess('Logged in successfully! Redirecting...');
-      
-      // Simulate setting role in localStorage based on login
-      if (typeof window !== 'undefined') {
-        if (email.toUpperCase() === 'OICOFI20200001') {
-           localStorage.setItem('dayflow_role', 'Admin');
-        } else {
-           localStorage.setItem('dayflow_role', 'Employee');
-        }
+    if (validLogins.includes(odooId)) {
+      let mappedEmail = '';
+      if (odooId === 'OICOFI20200001') {
+        mappedEmail = 'cody@dayflow.com';
+      } else {
+        mappedEmail = 'alex@dayflow.com';
       }
 
-      setTimeout(() => {
-        if (email.toUpperCase() === 'OICOFI20200001') {
-          router.push('/admin'); // Redirect HR to Admin Dashboard
-        } else {
-          router.push('/'); // Redirect Employee to Employee Dashboard
+      try {
+        await login({ email: mappedEmail, password: 'password' });
+        setSuccess('Logged in successfully! Redirecting...');
+        
+        if (typeof window !== 'undefined') {
+          if (odooId === 'OICOFI20200001') {
+             localStorage.setItem('dayflow_role', 'Admin');
+          } else {
+             localStorage.setItem('dayflow_role', 'Employee');
+          }
         }
-      }, 1000);
+
+        setTimeout(() => {
+          if (odooId === 'OICOFI20200001') {
+            router.push('/admin'); // Redirect HR to Admin Dashboard
+          } else {
+            router.push('/'); // Redirect Employee to Employee Dashboard
+          }
+        }, 1000);
+      } catch (err: any) {
+        console.error(err);
+        setError(err.response?.data?.error || 'Authentication failed. Please check backend.');
+      }
     } else {
       setError('Invalid credentials. Hint: use OICOFI20200001 (Admin) or OIALMA20230002 (Employee)');
     }
