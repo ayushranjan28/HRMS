@@ -1,10 +1,36 @@
 "use client";
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Edit2, Mail, Phone, MapPin, Building, Briefcase, Calendar } from 'lucide-react';
 
 export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState('Overview');
+  const [employee, setEmployee] = useState<any>(null);
+  
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const cachedEmp = localStorage.getItem('dayflow_employee');
+      if (cachedEmp) {
+        setEmployee(JSON.parse(cachedEmp));
+      }
+    }
+  }, []);
+
   const tabs = ['Overview', 'Personal Information', 'Job Information', 'Salary Information', 'Documents'];
+
+  const name = employee ? `${employee.firstName} ${employee.lastName}` : 'Alex Martin';
+  const role = employee?.designationId || 'UI/UX Designer';
+  const avatar = employee?.profilePhoto || 'https://i.pravatar.cc/150?u=a042581f4e29026024d';
+  const empId = employee?.employeeId || 'OIAlin20230212';
+  const department = employee?.departmentId || 'Design';
+  const email = employee?.email || 'alex.martin@dayflow.com';
+  const phone = employee?.phone || '+1 234 567 8901';
+  const joinDate = employee?.joiningDate || '12 Jan 2023';
+  const location = employee?.workLocation || 'Bangalore, India';
+  const gender = employee?.gender || 'Male';
+  const dateOfBirth = employee?.dateOfBirth || '15 Aug 1992';
+  const nationality = employee?.country || 'American';
+  const baseSalary = employee?.baseSalary ? `₹${employee.baseSalary.toLocaleString('en-IN')} / month` : '₹85,000 / month';
+
 
   return (
     <div className="flex flex-col gap-6 w-full max-w-7xl mx-auto">
@@ -21,10 +47,10 @@ export default function ProfilePage() {
         <div className="col-span-12 lg:col-span-3">
           <div className="flex flex-col items-center bg-white rounded-2xl p-6 border border-[#E6E3DE] shadow-sm">
             <div className="w-24 h-24 rounded-full bg-gray-200 overflow-hidden mb-4 border-4 border-[#F7F5F1]">
-              <img src="https://i.pravatar.cc/150?u=a042581f4e29026024d" alt="Alex Martin" className="w-full h-full object-cover" />
+              <img src={avatar} alt={name} className="w-full h-full object-cover" />
             </div>
-            <h2 className="text-lg font-bold text-[#2D3032]">Alex Martin</h2>
-            <p className="text-xs font-medium text-[#777A7C] mt-1 mb-8">UI/UX Designer</p>
+            <h2 className="text-lg font-bold text-[#2D3032]">{name}</h2>
+            <p className="text-xs font-medium text-[#777A7C] mt-1 mb-8">{role}</p>
             
             <div className="w-full space-y-1">
               {tabs.map((tab) => (
@@ -54,23 +80,23 @@ export default function ProfilePage() {
             <div className="grid grid-cols-2 gap-y-10 gap-x-12">
               <div>
                 <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Employee ID</div>
-                <div className="text-sm font-medium text-[#2D3032]">OIAlin20230212</div>
+                <div className="text-sm font-medium text-[#2D3032]">{empId}</div>
               </div>
               <div>
                 <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Department</div>
-                <div className="text-sm font-medium text-[#2D3032]">Design</div>
+                <div className="text-sm font-medium text-[#2D3032]">{department}</div>
               </div>
               <div>
                 <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2 flex items-center gap-1"><Mail className="w-3 h-3"/> Email</div>
-                <div className="text-sm font-medium text-[#2D3032]">alex.martin@dayflow.com</div>
+                <div className="text-sm font-medium text-[#2D3032]">{email}</div>
               </div>
               <div>
                 <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2 flex items-center gap-1"><Phone className="w-3 h-3"/> Phone</div>
-                <div className="text-sm font-medium text-[#2D3032]">+1 234 567 8901</div>
+                <div className="text-sm font-medium text-[#2D3032]">{phone}</div>
               </div>
               <div>
                 <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2 flex items-center gap-1"><MapPin className="w-3 h-3"/> Location</div>
-                <div className="text-sm font-medium text-[#2D3032]">Bangalore, India</div>
+                <div className="text-sm font-medium text-[#2D3032]">{location}</div>
               </div>
             </div>
           )}
@@ -79,19 +105,19 @@ export default function ProfilePage() {
             <div className="grid grid-cols-2 gap-y-10 gap-x-12">
               <div>
                 <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Full Name</div>
-                <div className="text-sm font-medium text-[#2D3032]">Alex Martin</div>
+                <div className="text-sm font-medium text-[#2D3032]">{name}</div>
               </div>
               <div>
                 <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Date of Birth</div>
-                <div className="text-sm font-medium text-[#2D3032]">15 Aug 1992</div>
+                <div className="text-sm font-medium text-[#2D3032]">{dateOfBirth}</div>
               </div>
               <div>
                 <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Gender</div>
-                <div className="text-sm font-medium text-[#2D3032]">Male</div>
+                <div className="text-sm font-medium text-[#2D3032]">{gender}</div>
               </div>
               <div>
                 <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Nationality</div>
-                <div className="text-sm font-medium text-[#2D3032]">American</div>
+                <div className="text-sm font-medium text-[#2D3032]">{nationality}</div>
               </div>
             </div>
           )}
@@ -100,15 +126,15 @@ export default function ProfilePage() {
             <div className="grid grid-cols-2 gap-y-10 gap-x-12">
               <div>
                 <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Employee ID</div>
-                <div className="text-sm font-medium text-[#2D3032]">OIAlin20230212</div>
+                <div className="text-sm font-medium text-[#2D3032]">{empId}</div>
               </div>
               <div>
                 <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Department</div>
-                <div className="text-sm font-medium text-[#2D3032]">Design</div>
+                <div className="text-sm font-medium text-[#2D3032]">{department}</div>
               </div>
               <div>
                 <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Designation</div>
-                <div className="text-sm font-medium text-[#2D3032]">UI/UX Designer</div>
+                <div className="text-sm font-medium text-[#2D3032]">{role}</div>
               </div>
               <div>
                 <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Reporting To</div>
@@ -119,7 +145,7 @@ export default function ProfilePage() {
               </div>
               <div>
                 <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2 flex items-center gap-1"><Calendar className="w-3 h-3"/> Join Date</div>
-                <div className="text-sm font-medium text-[#2D3032]">12 Jan 2023</div>
+                <div className="text-sm font-medium text-[#2D3032]">{joinDate}</div>
               </div>
             </div>
           )}
@@ -128,7 +154,7 @@ export default function ProfilePage() {
             <div className="grid grid-cols-2 gap-y-10 gap-x-12">
               <div>
                 <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Base Salary</div>
-                <div className="text-sm font-medium text-[#2D3032]">₹85,000 / month</div>
+                <div className="text-sm font-medium text-[#2D3032]">{baseSalary}</div>
               </div>
               <div>
                 <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Bank Name</div>

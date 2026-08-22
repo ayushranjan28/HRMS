@@ -360,14 +360,6 @@ export function Header() {
                 </button>
 
                 <button 
-                  onClick={handleRoleSwitch}
-                  className="w-full text-left flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-[#2D3032] hover:bg-[#F7F5F1] transition-all"
-                >
-                  <Mail className="w-4 h-4 text-[#777A7C]" />
-                  Switch to {currentUser?.role === 'HR' || currentUser?.role === 'HR_ADMIN' ? 'Employee View' : 'Admin View'}
-                </button>
-
-                <button 
                   onClick={handleLogout}
                   className="w-full text-left flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-[#E56B65] hover:bg-[#E56B65]/5 transition-all border-t border-[#E6E3DE] mt-1 pt-2"
                 >

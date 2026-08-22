@@ -85,8 +85,8 @@ export default function AuthPage() {
     setError('');
     setSuccess('');
     try {
-      const data = await api.login({ email: 'OIALMA20220008', password: 'password' });
-      setEmail('OIALMA20220008');
+      const data = await api.login({ email: 'OIJACO20200001', password: 'password' });
+      setEmail('OIJACO20200001');
       setPassword('password');
       setSuccess('Logged in successfully as Admin! Redirecting...');
       setTimeout(() => {
@@ -101,8 +101,8 @@ export default function AuthPage() {
     setError('');
     setSuccess('');
     try {
-      const data = await api.login({ email: 'OIJACO20200001', password: 'password' });
-      setEmail('OIJACO20200001');
+      const data = await api.login({ email: 'OIALMA20220008', password: 'password' });
+      setEmail('OIALMA20220008');
       setPassword('password');
       setSuccess('Logged in successfully as Employee! Redirecting...');
       setTimeout(() => {
@@ -264,18 +264,6 @@ export default function AuthPage() {
           /* ================= SIGN UP ================= */
           <form onSubmit={handleSignUp} className="space-y-4">
 
-            {/* Employee ID */}
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-[#5E5652]">Employee ID</label>
-              <input
-                type="text"
-                placeholder="DF-YYYY-XXXX (e.g., DF-2026-0045)"
-                className="w-full bg-white border border-[#E6E3DE] rounded-[14px] p-3 text-xs focus:outline-none focus:ring-2 focus:ring-[#B5F12C] focus:border-[#B5F12C]"
-                value={employeeId}
-                onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
-                required
-              />
-            </div>
 
             {/* Name */}
             <div className="space-y-1">
@@ -286,6 +274,19 @@ export default function AuthPage() {
                 className="w-full bg-white border border-[#E6E3DE] rounded-[14px] p-3 text-xs focus:outline-none focus:ring-2 focus:ring-[#B5F12C] focus:border-[#B5F12C]"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                required
+              />
+            </div>
+
+            {/* Employee ID (Replacing previous Email position) */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-[#5E5652]">Employee ID</label>
+              <input
+                type="text"
+                placeholder="DF-YYYY-XXXX (e.g., DF-2026-0045)"
+                className="w-full bg-white border border-[#E6E3DE] rounded-[14px] p-3 text-xs focus:outline-none focus:ring-2 focus:ring-[#B5F12C] focus:border-[#B5F12C]"
+                value={employeeId}
+                onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
                 required
               />
             </div>
@@ -359,7 +360,6 @@ export default function AuthPage() {
                 onChange={(e) => setRole(e.target.value as any)}
               >
                 <option value="Employee">Employee (Timesheets only)</option>
-                <option value="HR">HR Officer / Administrator</option>
               </select>
             </div>
 
