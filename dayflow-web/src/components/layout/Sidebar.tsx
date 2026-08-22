@@ -87,29 +87,33 @@ export function Sidebar() {
       
       <div className="flex flex-1 flex-col overflow-y-auto px-4 py-2 space-y-1">
         <nav className="flex-1 space-y-1.5">
-          {/* Employee Portal Navigation (Visible to Everyone) */}
-          <div className="mb-2 mt-4 px-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
-            Employee Portal
-          </div>
-          {employeeNav.map((item) => {
-            const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href) && !pathname.startsWith('/admin'));
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={cn(
-                  'group flex items-center gap-3.5 rounded-2xl px-4 py-3.5 text-[15px] font-medium transition-all duration-200',
-                  isActive
-                    ? 'bg-sidebar-active text-white shadow-sm'
-                    : 'text-gray-400 hover:bg-sidebar-hover hover:text-white'
-                )}
-              >
-                <Icon className={cn("h-5 w-5", isActive ? "text-white" : "text-gray-400 group-hover:text-white transition-colors")} strokeWidth={isActive ? 2.5 : 2} />
-                {item.name}
-              </Link>
-            );
-          })}
+          {/* Employee Portal Navigation (Visible to Employee only) */}
+          {(role === 'Employee') && (
+            <>
+              <div className="mb-2 mt-4 px-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                Employee Portal
+              </div>
+              {employeeNav.map((item) => {
+                const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href) && !pathname.startsWith('/admin'));
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    className={cn(
+                      'group flex items-center gap-3.5 rounded-2xl px-4 py-3.5 text-[15px] font-medium transition-all duration-200',
+                      isActive
+                        ? 'bg-sidebar-active text-white shadow-sm'
+                        : 'text-gray-400 hover:bg-sidebar-hover hover:text-white'
+                    )}
+                  >
+                    <Icon className={cn("h-5 w-5", isActive ? "text-white" : "text-gray-400 group-hover:text-white transition-colors")} strokeWidth={isActive ? 2.5 : 2} stroke={isActive ? undefined : "currentColor"} />
+                    {item.name}
+                  </Link>
+                );
+              })}
+            </>
+          )}
 
           {/* Admin Portal Navigation (Visible to HR/Admin only) */}
           {(role === 'HR' || role === 'Admin') && (
@@ -131,7 +135,7 @@ export function Sidebar() {
                         : 'text-gray-400 hover:bg-sidebar-hover hover:text-white'
                     )}
                   >
-                    <Icon className={cn("h-5 w-5", isActive ? "text-white" : "text-gray-400 group-hover:text-white transition-colors")} strokeWidth={isActive ? 2.5 : 2} />
+                    <Icon className={cn("h-5 w-5", isActive ? "text-white" : "text-gray-400 group-hover:text-white transition-colors")} strokeWidth={isActive ? 2.5 : 2} stroke={isActive ? undefined : "currentColor"} />
                     {item.name}
                   </Link>
                 );

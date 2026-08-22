@@ -206,6 +206,51 @@ app.get('/api/auth/me', async (req: Request, res: Response) => {
   }
 });
 
+app.post('/api/auth/switch-role', async (req: Request, res: Response) => {
+  if (!activeSessionUser) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+
+  try {
+    const currentRole = activeSessionUser.role;
+    const newRole = currentRole === 'HR_ADMIN' ? Role.EMPLOYEE : Role.HR_ADMIN;
+
+    const updated = await prisma.user.update({
+      where: { id: activeSessionUser.id },
+      data: { role: newRole },
+      include: { privateInfo: true, salaryStructure: true },
+    });
+
+    activeSessionUser = updated;
+    res.json({ user: userToAuthUser(updated), employee: userToEmployee(updated) });
+  } catch {
+    // Store fallback
+    const currentRole = activeSessionUser.role;
+    const newRole = (currentRole === 'HR_ADMIN' || currentRole === 'HR') ? 'Employee' : 'HR';
+    
+    // Update activeSessionUser role
+    activeSessionUser.role = newRole === 'HR' ? 'HR_ADMIN' : 'EMPLOYEE';
+    
+    // Find matching user in store to keep sync
+    const storeUser = store.users.find(u => u.id === activeSessionUser.id || u.email === activeSessionUser.email);
+    if (storeUser) {
+      storeUser.role = newRole;
+    }
+
+    res.json({
+      user: {
+        id: activeSessionUser.id,
+        username: storeUser?.username || '',
+        email: activeSessionUser.email,
+        role: newRole,
+        employeeId: activeSessionUser.employeeId,
+        createdAt: '',
+      },
+      employee: userToEmployee(activeSessionUser),
+    });
+  }
+});
+
 
 
 // ================= EMPLOYEES (ADMIN - from DB) =================
@@ -545,49 +590,81 @@ app.post('/api/attendance/mark', async (req: Request, res: Response) => {
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
   
-  let record = await prisma.attendance.findFirst({
-    where: { userId: activeSessionUser.id, date: { gte: today, lt: tomorrow } },
-  });
-
-  if (type === 'checkin') {
-    if (record) return res.status(400).json({ error: 'Already checked in today' });
-    record = await prisma.attendance.create({
-      data: {
-        userId: activeSessionUser.id,
-        date: new Date(),
-        checkIn: new Date(),
-        status: AttendanceStatus.PRESENT,
-      },
+  try {
+    let record = await prisma.attendance.findFirst({
+      where: { userId: activeSessionUser.id, date: { gte: today, lt: tomorrow } },
     });
-  } else if (type === 'checkout') {
-    if (!record) return res.status(400).json({ error: 'Not checked in yet' });
-    if (record.checkOut) return res.status(400).json({ error: 'Already checked out today' });
-    
-    const cOut = new Date();
-    let ms = cOut.getTime() - record.checkIn!.getTime();
-    if (ms < 0) ms += 24 * 60 * 60 * 1000;
-    const hrs = ms / (1000 * 60 * 60);
-    
-    let workHours = 0;
-    let extraHours = 0;
-    if (hrs > 8) {
-      workHours = 8;
-      extraHours = parseFloat((hrs - 8).toFixed(2));
-    } else {
-      workHours = parseFloat(hrs.toFixed(2));
+
+    if (type === 'checkin') {
+      if (record) return res.status(400).json({ error: 'Already checked in today' });
+      record = await prisma.attendance.create({
+        data: {
+          userId: activeSessionUser.id,
+          date: new Date(),
+          checkIn: new Date(),
+          status: AttendanceStatus.PRESENT,
+        },
+      });
+    } else if (type === 'checkout') {
+      if (!record) return res.status(400).json({ error: 'Not checked in yet' });
+      if (record.checkOut) return res.status(400).json({ error: 'Already checked out today' });
+      
+      const cOut = new Date();
+      let ms = cOut.getTime() - record.checkIn!.getTime();
+      if (ms < 0) ms += 24 * 60 * 60 * 1000;
+      const hrs = ms / (1000 * 60 * 60);
+      
+      let workHours = 0;
+      let extraHours = 0;
+      if (hrs > 8) {
+        workHours = 8;
+        extraHours = parseFloat((hrs - 8).toFixed(2));
+      } else {
+        workHours = parseFloat(hrs.toFixed(2));
+      }
+
+      record = await prisma.attendance.update({
+        where: { id: record.id },
+        data: {
+          checkOut: cOut,
+          workHours,
+          extraHours,
+        },
+      });
     }
 
-    record = await prisma.attendance.update({
-      where: { id: record.id },
-      data: {
-        checkOut: cOut,
-        workHours,
-        extraHours,
-      },
-    });
-  }
+    res.json({ message: `Successfully ${type}ed`, record });
+  } catch {
+    // Store fallback
+    const empId = activeSessionUser.employeeId || 'EMP001';
+    const todayStr = new Date().toISOString().split('T')[0];
+    let recordIdx = store.attendance.findIndex(a => a.employeeId === empId && a.date === todayStr);
 
-  res.json({ message: `Successfully ${type}ed`, record });
+    if (type === 'checkin') {
+      if (recordIdx !== -1) return res.status(400).json({ error: 'Already checked in today' });
+      const newAtt: store.Attendance = {
+        id: `ATT-${Date.now()}`,
+        employeeId: empId,
+        date: todayStr,
+        checkIn: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        checkOut: '',
+        totalHours: '--',
+        status: 'Present',
+        location: location || 'Office',
+      };
+      store.attendance.push(newAtt);
+      return res.json({ message: `Successfully checked in`, record: newAtt });
+    } else if (type === 'checkout') {
+      if (recordIdx === -1) return res.status(400).json({ error: 'Not checked in yet' });
+      const record = store.attendance[recordIdx];
+      if (record.checkOut && record.checkOut !== '--' && record.checkOut !== '') {
+        return res.status(400).json({ error: 'Already checked out today' });
+      }
+      record.checkOut = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      record.totalHours = '8h 00m';
+      return res.json({ message: `Successfully checked out`, record });
+    }
+  }
 });
 
 app.put('/api/attendance/:id', requireAdmin, async (req: Request, res: Response) => {
@@ -1188,25 +1265,38 @@ app.get('/api/reports/payroll', async (req: Request, res: Response) => {
 // ================= NOTIFICATIONS (from DB) =================
 app.get('/api/user-alerts', async (req: Request, res: Response) => {
   if (!activeSessionUser) return res.json({ list: [], unread: 0 });
-  const notifications = await prisma.notification.findMany({
-    where: { userId: activeSessionUser.id },
-    orderBy: { createdAt: 'desc' },
-  });
-  const list = notifications.map(n => ({ id: n.id, userId: activeSessionUser.id, title: n.title, message: n.message, type: n.type.toLowerCase(), isRead: n.isRead, createdAt: n.createdAt.toISOString() }));
-  res.json({ list, unread: list.filter(n => !n.isRead).length });
+  try {
+    const notifications = await prisma.notification.findMany({
+      where: { userId: activeSessionUser.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    const list = notifications.map(n => ({ id: n.id, userId: activeSessionUser.id, title: n.title, message: n.message, type: n.type.toLowerCase(), isRead: n.isRead, createdAt: n.createdAt.toISOString() }));
+    res.json({ list, unread: list.filter(n => !n.isRead).length });
+  } catch {
+    // Store fallback
+    const userId = activeSessionUser.id;
+    const list = store.notifications.filter(n => n.userId === userId || n.userId === 'U1').slice(0, 20);
+    res.json({ list, unread: list.filter(n => !n.isRead).length });
+  }
 });
 
 app.put('/api/user-alerts/:id/read', async (req: Request, res: Response) => {
-  await prisma.notification.update({
-    where: { id: req.params.id },
-    data: { isRead: true },
-  });
+  try {
+    await prisma.notification.update({ where: { id: req.params.id }, data: { isRead: true } });
+  } catch {
+    const n = store.notifications.find(n => n.id === req.params.id);
+    if (n) n.isRead = true;
+  }
   res.json({ success: true });
 });
 
 app.put('/api/user-alerts/read-all', async (req: Request, res: Response) => {
   if (!activeSessionUser) return res.json({ success: false });
-  await prisma.notification.updateMany({ where: { userId: activeSessionUser.id }, data: { isRead: true } });
+  try {
+    await prisma.notification.updateMany({ where: { userId: activeSessionUser.id }, data: { isRead: true } });
+  } catch {
+    store.notifications.forEach(n => { if (n.userId === activeSessionUser.id || n.userId === 'U1') n.isRead = true; });
+  }
   res.json({ success: true });
 });
 

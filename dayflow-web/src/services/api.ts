@@ -48,6 +48,15 @@ export const getMe = async () => {
   return response.data;
 };
 
+export const switchRole = async () => {
+  const response = await api.post('/auth/switch-role');
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('dayflow_user', JSON.stringify(response.data.user));
+    localStorage.setItem('dayflow_employee', JSON.stringify(response.data.employee));
+  }
+  return response.data;
+};
+
 
 
 // Employees
