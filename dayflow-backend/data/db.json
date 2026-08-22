@@ -1,0 +1,48 @@
+{
+  "employees": [
+    {
+      "id": "EMP001",
+      "name": "Alex Martin",
+      "role": "UI/UX Designer",
+      "department": "Design",
+      "email": "alex@dayflow.com",
+      "avatar": "https://i.pravatar.cc/150?u=a042581f4e29026024d"
+    },
+    {
+      "id": "EMP002",
+      "name": "Jane Cooper",
+      "role": "Engineering Lead",
+      "department": "Engineering",
+      "email": "jane@dayflow.com",
+      "avatar": "https://i.pravatar.cc/150?u=a042581f4e29026024f"
+    },
+    {
+      "id": "EMP003",
+      "name": "Robert Fox",
+      "role": "Marketing specialist",
+      "department": "Marketing",
+      "email": "robert@dayflow.com",
+      "avatar": "https://i.pravatar.cc/150?u=a042581f4e29026024a"
+    },
+    {
+      "id": "EMP004",
+      "name": "Cody Fisher",
+      "role": "HR Manager",
+      "department": "HR",
+      "email": "cody@dayflow.com",
+      "avatar": "https://i.pravatar.cc/150?u=a042581f4e29026024b"
+    },
+    {
+      "id": "EMP005",
+      "name": "Esther Howard",
+      "role": "Product Manager",
+      "department": "Product",
+      "email": "esther@dayflow.com",
+      "avatar": "https://i.pravatar.cc/150?u=a042581f4e29026024c"
+    }
+  ],
+  "claims": [],
+  "categories": [],
+  "bills": [],
+  "notifications": []
+}

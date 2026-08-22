@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { 
   LayoutDashboard, CalendarCheck, FileText, User, 
   Folder, Calendar, Bell, BarChart2, Settings, LogOut, 
@@ -31,49 +31,50 @@ const adminNav = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [role, setRole] = useState<'HR' | 'Employee' | 'Admin'>('HR');
+  const router = useRouter();
+  const [role, setRole] = useState<'HR' | 'Employee' | 'Admin'>('Employee');
+
+  useEffect(() => {
+    // Synchronously check local storage to prevent flicker
+    if (typeof window !== 'undefined') {
+      const localRole = localStorage.getItem('dayflow_role');
+      if (localRole) {
+        setRole(localRole === 'Admin' ? 'HR' : 'Employee');
+      } else {
+        const cachedUser = localStorage.getItem('dayflow_user');
+        if (cachedUser) {
+          try {
+            setRole(JSON.parse(cachedUser).role);
+          } catch (e) {}
+        }
+      }
+    }
+  }, []);
 
   const checkUserRole = async () => {
     try {
       const data = await api.getMe();
       setRole(data.user.role);
     } catch (e) {
-      if (typeof window !== 'undefined') {
-        const localRole = localStorage.getItem('dayflow_role');
-        if (localRole) {
-          setRole(localRole === 'Admin' ? 'HR' : 'Employee');
-        } else {
-          const cachedUser = localStorage.getItem('dayflow_user');
-          if (cachedUser) {
-            setRole(JSON.parse(cachedUser).role);
-          }
-        }
-      }
+      // Ignore API errors, fallback is already set by initial useEffect
     }
   };
 
   useEffect(() => {
     checkUserRole();
-    // Poll role every 5 seconds to stay updated
     const interval = setInterval(checkUserRole, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  const handleRoleSwitch = async () => {
-    // Deprecated: Admins now see all features in the sidebar simultaneously
-  };
-
   const handleLogout = async () => {
     try {
       await api.logout();
-      window.location.href = '/login';
+      router.push('/login');
     } catch (e) {
       console.error('Logout error:', e);
-      window.location.href = '/login';
+      router.push('/login');
     }
   };
-
-  const isAdminView = pathname.startsWith('/admin') || pathname === '/reports';
 
   return (
     <div className="flex h-full w-[260px] flex-col bg-sidebar text-gray-300 rounded-r-3xl overflow-hidden shadow-2xl z-20 shrink-0">
@@ -147,7 +148,7 @@ export function Sidebar() {
         {/* The switch button is now removed as both views are visible */}
         
         <button 
-          onClick={() => window.location.href = '/admin/settings'}
+          onClick={() => router.push('/admin/settings')}
           className="flex w-full items-center gap-3.5 rounded-2xl px-4 py-3 text-[15px] font-medium text-gray-400 hover:bg-sidebar-hover hover:text-white transition-all cursor-pointer"
         >
           <Settings className="h-5 w-5" />

@@ -23,6 +23,21 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 // Active session tracking (kept in-memory for session management)
 let activeSessionUser: any = null;
 
+// Middleware to restore session from headers
+app.use(async (req, res, next) => {
+  if (!activeSessionUser && req.headers['x-user-email']) {
+    const email = req.headers['x-user-email'] as string;
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: { privateInfo: true, salaryStructure: true },
+    });
+    if (user) {
+      activeSessionUser = user;
+    }
+  }
+  next();
+});
+
 // Middleware to check admin role
 function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (activeSessionUser && activeSessionUser.role === 'HR_ADMIN') {
@@ -133,57 +148,18 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Credentials are required' });
   }
 
-  try {
-    const user = await prisma.user.findFirst({
-      where: { OR: [{ email: (email || '').toLowerCase() }] },
-      include: { privateInfo: true, salaryStructure: true },
-    });
-    if (!user || !compareSync(password, user.passwordHash)) {
-      throw new Error('invalid');
-    }
-    activeSessionUser = user;
-    res.json({ user: userToAuthUser(user), employee: userToEmployee(user) });
-  } catch {
-    // Fallback: store-based auth (supports username OR email login)
-    const loginId = (username || email || '').toLowerCase();
-    const storeUser = store.users.find(u =>
-      u.email.toLowerCase() === loginId ||
-      u.username.toLowerCase() === loginId
-    );
-    if (!storeUser || !compareSync(password, storeUser.passwordHash)) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-    const storeEmp = store.employees.find(e => e.id === storeUser.employeeId);
-    const dept = store.departments.find(d => d.id === storeEmp?.departmentId);
-    const desig = store.designations.find(d => d.id === storeEmp?.designationId);
-    const sessionUser = {
-      id: storeUser.id,
-      role: storeUser.role === 'HR' ? 'HR_ADMIN' : 'EMPLOYEE',
-      employeeId: storeUser.employeeId,
-      email: storeUser.email,
-      fullName: storeEmp ? `${storeEmp.firstName} ${storeEmp.lastName}` : storeUser.username,
-    };
-    activeSessionUser = sessionUser;
-    const empOut = storeEmp ? {
-      id: storeEmp.id, employeeId: storeEmp.employeeId,
-      firstName: storeEmp.firstName, lastName: storeEmp.lastName,
-      email: storeEmp.email, phone: storeEmp.phone || '',
-      dateOfBirth: storeEmp.dateOfBirth || '', gender: storeEmp.gender || '',
-      address: storeEmp.address || '', city: storeEmp.city || '',
-      state: storeEmp.state || '', country: storeEmp.country || '',
-      departmentId: dept?.name || storeEmp.departmentId,
-      designationId: desig?.name || storeEmp.designationId,
-      managerId: storeEmp.managerId || '',
-      joiningDate: storeEmp.joiningDate || '', employmentType: storeEmp.employmentType || 'Full Time',
-      workLocation: storeEmp.workLocation || 'Office', status: storeEmp.status || 'Active',
-      profilePhoto: storeEmp.profilePhoto || '', baseSalary: storeEmp.baseSalary || 0,
-      hra: storeEmp.hra || 0, allowances: storeEmp.allowances || 0,
-      role: storeUser.role, createdAt: storeUser.createdAt,
-    } : {};
-    res.json({
-      user: { id: storeUser.id, username: storeUser.username, email: storeUser.email, role: storeUser.role, employeeId: storeUser.employeeId, createdAt: storeUser.createdAt },
-      employee: empOut,
-    });
+  const user = await prisma.user.findFirst({
+    where: { 
+      OR: [
+        { email: (email || '').toLowerCase() },
+        { employeeId: (email || '').toUpperCase() }
+      ]
+    },
+    include: { privateInfo: true, salaryStructure: true },
+  });
+
+  if (!user || !compareSync(password, user.passwordHash)) {
+    return res.status(401).json({ error: 'Invalid credentials' });
   }
 });
 
@@ -491,14 +467,36 @@ app.post('/api/attendance', async (req: Request, res: Response) => {
     Late: AttendanceStatus.PRESENT,
   };
 
+  let workHours = 0;
+  let extraHours = 0;
+  let tTotalHours = '--';
+  const cIn = new Date(`${date}T${checkIn}`);
+  const cOut = checkOut ? new Date(`${date}T${checkOut}`) : null;
+  
+  if (cOut) {
+    let ms = cOut.getTime() - cIn.getTime();
+    if (ms < 0) ms += 24 * 60 * 60 * 1000; // handle overnight
+    const hrs = ms / (1000 * 60 * 60);
+    if (hrs > 8) {
+      workHours = 8;
+      extraHours = parseFloat((hrs - 8).toFixed(2));
+    } else {
+      workHours = parseFloat(hrs.toFixed(2));
+    }
+    const h = Math.floor(hrs);
+    const m = Math.round((hrs % 1) * 60);
+    tTotalHours = `${h}h ${String(m).padStart(2, '0')}m`;
+  }
+
   const record = await prisma.attendance.create({
     data: {
       userId: user.id,
       date: new Date(date),
-      checkIn: new Date(`${date}T${checkIn}`),
-      checkOut: checkOut ? new Date(`${date}T${checkOut}`) : null,
+      checkIn: cIn,
+      checkOut: cOut,
       status: statusMap[status] || AttendanceStatus.PRESENT,
-      workHours: checkOut ? 8 : 0,
+      workHours,
+      extraHours,
     },
   });
 
@@ -508,10 +506,79 @@ app.post('/api/attendance', async (req: Request, res: Response) => {
     date,
     checkIn,
     checkOut: checkOut || '',
-    totalHours: checkOut ? '8h 00m' : '--',
+    totalHours: tTotalHours,
     status: status || 'Present',
     location: user.location || 'Office',
   });
+});
+
+app.get('/api/attendance/today', async (req: Request, res: Response) => {
+  if (!activeSessionUser) return res.status(401).json({ error: 'Unauthorized' });
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const record = await prisma.attendance.findFirst({
+    where: {
+      userId: activeSessionUser.id,
+      date: { gte: today, lt: tomorrow },
+    },
+  });
+  res.json({ record });
+});
+
+app.post('/api/attendance/mark', async (req: Request, res: Response) => {
+  if (!activeSessionUser) return res.status(401).json({ error: 'Unauthorized' });
+  const { type, location } = req.body; // type = 'checkin' or 'checkout'
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  
+  let record = await prisma.attendance.findFirst({
+    where: { userId: activeSessionUser.id, date: { gte: today, lt: tomorrow } },
+  });
+
+  if (type === 'checkin') {
+    if (record) return res.status(400).json({ error: 'Already checked in today' });
+    record = await prisma.attendance.create({
+      data: {
+        userId: activeSessionUser.id,
+        date: new Date(),
+        checkIn: new Date(),
+        status: AttendanceStatus.PRESENT,
+      },
+    });
+  } else if (type === 'checkout') {
+    if (!record) return res.status(400).json({ error: 'Not checked in yet' });
+    if (record.checkOut) return res.status(400).json({ error: 'Already checked out today' });
+    
+    const cOut = new Date();
+    let ms = cOut.getTime() - record.checkIn!.getTime();
+    if (ms < 0) ms += 24 * 60 * 60 * 1000;
+    const hrs = ms / (1000 * 60 * 60);
+    
+    let workHours = 0;
+    let extraHours = 0;
+    if (hrs > 8) {
+      workHours = 8;
+      extraHours = parseFloat((hrs - 8).toFixed(2));
+    } else {
+      workHours = parseFloat(hrs.toFixed(2));
+    }
+
+    record = await prisma.attendance.update({
+      where: { id: record.id },
+      data: {
+        checkOut: cOut,
+        workHours,
+        extraHours,
+      },
+    });
+  }
+
+  res.json({ message: `Successfully ${type}ed`, record });
 });
 
 app.put('/api/attendance/:id', requireAdmin, async (req: Request, res: Response) => {
@@ -836,16 +903,16 @@ app.get('/api/payroll', async (req: Request, res: Response) => {
       employeeId: p.user.employeeId,
       payrollMonth: `${p.year}-${String(p.month).padStart(2, '0')}`,
       basicSalary: Number(p.grossSalary),
-      allowances: 0,
-      bonus: 0,
-      overtime: 0,
+      allowances: p.items.filter(i => i.category === 'EARNING' && i.name !== 'Basic Salary' && i.name !== 'Overtime Pay' && i.name !== 'Bonus').reduce((sum, i) => sum + Number(i.amount), 0),
+      bonus: Number(p.items.find(i => i.name === 'Bonus')?.amount || 0),
+      overtime: Number(p.items.find(i => i.name === 'Overtime Pay')?.amount || 0),
       grossSalary: Number(p.grossSalary),
-      tax: 0,
-      pf: 0,
-      otherDeductions: 0,
+      tax: Number(p.items.find(i => i.name.toLowerCase().includes('tax'))?.amount || 0),
+      pf: Number(p.items.find(i => i.name.toLowerCase().includes('pf') || i.name.toLowerCase().includes('provident'))?.amount || 0),
+      otherDeductions: p.items.filter(i => i.category === 'DEDUCTION' && !i.name.toLowerCase().includes('tax') && !i.name.toLowerCase().includes('pf') && !i.name.toLowerCase().includes('provident')).reduce((sum, i) => sum + Number(i.amount), 0),
       totalDeductions: Number(p.totalDeductions),
       netSalary: Number(p.netSalary),
-      status: p.paidOn ? 'Paid' : 'Draft',
+      status: p.paidOn ? 'Approved' : 'Draft',
       employeeName: p.user.fullName,
       department: p.user.department || 'Unknown',
     }));
@@ -917,7 +984,17 @@ app.post('/api/payroll/generate', requireAdmin, async (req: Request, res: Respon
   const monthNum = parseInt(monthStr);
 
   const users = await prisma.user.findMany({
-    include: { salaryStructure: { include: { components: true } } },
+    include: { 
+      salaryStructure: { include: { components: true } },
+      attendance: {
+        where: {
+          date: {
+            gte: new Date(year, monthNum - 1, 1),
+            lt: new Date(year, monthNum, 1),
+          }
+        }
+      }
+    },
   });
 
   const generated: any[] = [];
@@ -934,7 +1011,13 @@ app.post('/api/payroll/generate', requireAdmin, async (req: Request, res: Respon
     const earnings = salary?.components.filter(c => c.category === 'EARNING') || [];
     const deductions = salary?.components.filter(c => c.category === 'DEDUCTION') || [];
 
-    const grossSalary = earnings.reduce((sum, c) => sum + Number(c.calculatedAmount), 0) || basicSalary;
+    // Calculate Overtime
+    const totalExtraHours = user.attendance.reduce((sum, a) => sum + Number(a.extraHours), 0);
+    const hourlyRate = basicSalary / 160; // Assuming 160 working hours a month
+    const overtimePay = Math.round(totalExtraHours * hourlyRate * 1.5); // 1.5x overtime rate
+
+    const baseEarnings = earnings.reduce((sum, c) => sum + Number(c.calculatedAmount), 0) || basicSalary;
+    const grossSalary = baseEarnings + overtimePay;
     const totalDeductions = deductions.reduce((sum, c) => sum + Number(c.calculatedAmount), 0) || Math.round(basicSalary * 0.2);
     const netSalary = grossSalary - totalDeductions;
 
@@ -949,6 +1032,7 @@ app.post('/api/payroll/generate', requireAdmin, async (req: Request, res: Respon
         items: {
           create: [
             ...earnings.map(c => ({ name: c.name, category: 'EARNING' as const, amount: Number(c.calculatedAmount) })),
+            ...(overtimePay > 0 ? [{ name: 'Overtime Pay', category: 'EARNING' as const, amount: overtimePay }] : []),
             ...deductions.map(c => ({ name: c.name, category: 'DEDUCTION' as const, amount: Number(c.calculatedAmount) })),
           ],
         },
@@ -984,7 +1068,7 @@ app.put('/api/payroll/:id', requireAdmin, async (req: Request, res: Response) =>
       ...(grossSalary !== undefined ? { grossSalary: parseFloat(grossSalary) } : {}),
       ...(totalDeductions !== undefined ? { totalDeductions: parseFloat(totalDeductions) } : {}),
       ...(netSalary !== undefined ? { netSalary: parseFloat(netSalary) } : {}),
-      ...(status === 'Paid' ? { paidOn: new Date() } : {}),
+      ...(status === 'Approved' ? { paidOn: new Date() } : {}),
     },
   });
 
@@ -1011,7 +1095,7 @@ app.put('/api/payroll/:id/approve', requireAdmin, async (req: Request, res: Resp
 
   res.json({
     ...updated,
-    status: 'Paid',
+    status: 'Approved',
     employeeId: payroll.user.employeeId,
     payrollMonth: `${payroll.year}-${String(payroll.month).padStart(2, '0')}`,
   });
@@ -1108,40 +1192,27 @@ app.get('/api/reports/payroll', async (req: Request, res: Response) => {
 
 
 // ================= NOTIFICATIONS (from DB) =================
-app.get('/api/notifications', async (req: Request, res: Response) => {
+app.get('/api/user-alerts', async (req: Request, res: Response) => {
   if (!activeSessionUser) return res.json({ list: [], unread: 0 });
-  try {
-    const notifications = await prisma.notification.findMany({
-      where: { userId: activeSessionUser.id },
-      orderBy: { createdAt: 'desc' },
-    });
-    const list = notifications.map(n => ({ id: n.id, userId: activeSessionUser.id, title: n.title, message: n.message, type: n.type.toLowerCase(), isRead: n.isRead, createdAt: n.createdAt.toISOString() }));
-    res.json({ list, unread: list.filter(n => !n.isRead).length });
-  } catch {
-    // Store fallback
-    const userId = activeSessionUser.id;
-    const list = store.notifications.filter(n => n.userId === userId || n.userId === 'U1').slice(0, 20);
-    res.json({ list, unread: list.filter(n => !n.isRead).length });
-  }
+  const notifications = await prisma.notification.findMany({
+    where: { userId: activeSessionUser.id },
+    orderBy: { createdAt: 'desc' },
+  });
+  const list = notifications.map(n => ({ id: n.id, userId: activeSessionUser.id, title: n.title, message: n.message, type: n.type.toLowerCase(), isRead: n.isRead, createdAt: n.createdAt.toISOString() }));
+  res.json({ list, unread: list.filter(n => !n.isRead).length });
 });
 
-app.put('/api/notifications/:id/read', async (req: Request, res: Response) => {
-  try {
-    await prisma.notification.update({ where: { id: req.params.id }, data: { isRead: true } });
-  } catch {
-    const n = store.notifications.find(n => n.id === req.params.id);
-    if (n) n.isRead = true;
-  }
+app.put('/api/user-alerts/:id/read', async (req: Request, res: Response) => {
+  await prisma.notification.update({
+    where: { id: req.params.id },
+    data: { isRead: true },
+  });
   res.json({ success: true });
 });
 
-app.put('/api/notifications/read-all', async (req: Request, res: Response) => {
+app.put('/api/user-alerts/read-all', async (req: Request, res: Response) => {
   if (!activeSessionUser) return res.json({ success: false });
-  try {
-    await prisma.notification.updateMany({ where: { userId: activeSessionUser.id }, data: { isRead: true } });
-  } catch {
-    store.notifications.forEach(n => { if (n.userId === activeSessionUser.id || n.userId === 'U1') n.isRead = true; });
-  }
+  await prisma.notification.updateMany({ where: { userId: activeSessionUser.id }, data: { isRead: true } });
   res.json({ success: true });
 });
 

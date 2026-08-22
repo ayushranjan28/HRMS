@@ -106,7 +106,7 @@ export default function PayrollControl() {
   const handleApprove = async (id: string) => {
     try {
       await api.approvePayroll(id);
-      showToast('success', 'Payroll approved and paid successfully!');
+      showToast('success', 'Payroll approved successfully!');
       loadData();
     } catch (e) {
       showToast('error', 'Failed to approve payroll');
@@ -280,8 +280,7 @@ export default function PayrollControl() {
                       <td className="py-4 px-6 text-sm font-bold text-[#2D3032]">${rec.netSalary?.toLocaleString()}</td>
                       <td className="py-4 px-6">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                          rec.status === 'Paid' ? 'bg-[#7FAF3F]/10 text-[#7FAF3F]' :
-                          rec.status === 'Approved' ? 'bg-[#67AFA5]/10 text-[#67AFA5]' :
+                          rec.status === 'Approved' ? 'bg-[#7FAF3F]/10 text-[#7FAF3F]' :
                           'bg-[#E5A83B]/10 text-[#E5A83B]'
                         }`}>
                           {rec.status}
@@ -296,7 +295,7 @@ export default function PayrollControl() {
                           >
                             <FileText className="w-4 h-4" />
                           </button>
-                          {rec.status !== 'Paid' && (
+                          {rec.status !== 'Approved' && (
                             <>
                               <button 
                                 onClick={() => handleEditClick(rec)}
@@ -308,7 +307,7 @@ export default function PayrollControl() {
                               <button 
                                 onClick={() => handleApprove(rec.id)}
                                 className="w-7 h-7 flex items-center justify-center rounded-lg text-[#7FAF3F] hover:bg-[#7FAF3F]/10 transition-all cursor-pointer"
-                                title="Approve & Pay"
+                                title="Approve"
                               >
                                 <Check className="w-4 h-4" />
                               </button>
@@ -416,7 +415,7 @@ export default function PayrollControl() {
               <div className="text-right">
                 <span className="text-[9px] font-bold text-[#777A7C] uppercase tracking-wider block">Pay Date</span>
                 <span className="font-semibold text-[#2D3032] block mt-0.5">30th {activeRecord.payrollMonth.split('-')[1]}, {activeRecord.payrollMonth.split('-')[0]}</span>
-                <span className="text-xs font-bold text-[#7FAF3F]">Status: PAID</span>
+                <span className="text-xs font-bold text-[#7FAF3F]">Status: APPROVED</span>
               </div>
             </div>
 

@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import axios from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -184,17 +185,17 @@ export const getReportsPayroll = async () => {
 
 // Notifications
 export const getNotifications = async () => {
-  const response = await api.get('/notifications');
+  const response = await api.get('/user-alerts');
   return response.data;
 };
 
 export const markNotificationRead = async (id: string) => {
-  const response = await api.put(`/notifications/${id}/read`);
+  const response = await api.put(`/user-alerts/${id}/read`);
   return response.data;
 };
 
 export const markAllNotificationsRead = async () => {
-  const response = await api.put('/notifications/read-all');
+  const response = await api.put('/user-alerts/read-all');
   return response.data;
 };
 
@@ -243,6 +244,16 @@ export const getDashboardData = async () => {
 
 export const getAttendanceData = async () => {
   const response = await api.get('/attendance');
+  return response.data;
+};
+
+export const getTodayAttendance = async () => {
+  const response = await api.get('/attendance/today');
+  return response.data;
+};
+
+export const markAttendance = async (type: 'checkin' | 'checkout', location: any) => {
+  const response = await api.post('/attendance/mark', { type, location });
   return response.data;
 };
 

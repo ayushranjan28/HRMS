@@ -31,7 +31,7 @@ async function main() {
   // ── Users (combines old Employee + User) ──
   const alex = await prisma.user.create({
     data: {
-      employeeId: 'EMP001',
+      employeeId: 'OIALMA20220008',
       fullName: 'Alex Martin',
       email: 'alex@dayflow.com',
       passwordHash: hashSync('password', 10),
@@ -70,7 +70,7 @@ async function main() {
 
   const jane = await prisma.user.create({
     data: {
-      employeeId: 'EMP002',
+      employeeId: 'OIJACO20200001',
       fullName: 'Jane Cooper',
       email: 'jane@dayflow.com',
       passwordHash: hashSync('password', 10),
@@ -108,7 +108,7 @@ async function main() {
 
   const robert = await prisma.user.create({
     data: {
-      employeeId: 'EMP003',
+      employeeId: 'OIROFO20230002',
       fullName: 'Robert Fox',
       email: 'robert@dayflow.com',
       passwordHash: hashSync('password', 10),
@@ -145,7 +145,7 @@ async function main() {
 
   const cody = await prisma.user.create({
     data: {
-      employeeId: 'OICOFI20200001',
+      employeeId: 'OICOFI20200003',
       fullName: 'Cody Fisher',
       email: 'cody@dayflow.com',
       passwordHash: hashSync('password', 10),
@@ -181,7 +181,7 @@ async function main() {
 
   const esther = await prisma.user.create({
     data: {
-      employeeId: 'EMP005',
+      employeeId: 'OIESHO20220004',
       fullName: 'Esther Howard',
       email: 'esther@dayflow.com',
       passwordHash: hashSync('password', 10),
@@ -217,7 +217,7 @@ async function main() {
 
   const brooklyn = await prisma.user.create({
     data: {
-      employeeId: 'EMP006',
+      employeeId: 'OIBRSI20240005',
       fullName: 'Brooklyn Simmons',
       email: 'brooklyn@dayflow.com',
       passwordHash: hashSync('password', 10),
@@ -253,7 +253,7 @@ async function main() {
 
   const leslie = await prisma.user.create({
     data: {
-      employeeId: 'EMP007',
+      employeeId: 'OILEAL20230006',
       fullName: 'Leslie Alexander',
       email: 'leslie@dayflow.com',
       passwordHash: hashSync('password', 10),
@@ -289,7 +289,7 @@ async function main() {
 
   const jenny = await prisma.user.create({
     data: {
-      employeeId: 'EMP008',
+      employeeId: 'OIJEWI20220007',
       fullName: 'Jenny Wilson',
       email: 'jenny@dayflow.com',
       passwordHash: hashSync('password', 10),

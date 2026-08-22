@@ -6,7 +6,7 @@ import {
   ChevronRight, Megaphone, Video
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { getDashboardData } from '@/services/api';
+import { getDashboardData, getTodayAttendance, markAttendance } from '@/services/api';
 
 const COLORS = {
   Present: '#7FAF3F',
@@ -17,13 +17,19 @@ const COLORS = {
 
 export default function EmployeeDashboard() {
   const [data, setData] = useState<any>(null);
+  const [todayRecord, setTodayRecord] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [markingStatus, setMarkingStatus] = useState(false);
 
   useEffect(() => {
     async function loadData() {
       try {
-        const result = await getDashboardData();
+        const [result, attendanceResult] = await Promise.all([
+          getDashboardData(),
+          getTodayAttendance(),
+        ]);
         setData(result);
+        setTodayRecord(attendanceResult?.record || null);
       } catch (error) {
         console.error("Failed to load dashboard data:", error);
       } finally {
@@ -32,6 +38,33 @@ export default function EmployeeDashboard() {
     }
     loadData();
   }, []);
+
+  const handleMarkAttendance = async (type: 'checkin' | 'checkout') => {
+    setMarkingStatus(true);
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser");
+      setMarkingStatus(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const loc = { lat: position.coords.latitude, lng: position.coords.longitude };
+          const res = await markAttendance(type, loc);
+          setTodayRecord(res.record);
+        } catch (error: any) {
+          alert(error?.response?.data?.error || "Failed to mark attendance");
+        } finally {
+          setMarkingStatus(false);
+        }
+      },
+      (error) => {
+        alert("Failed to get location. Please allow location access to mark attendance.");
+        setMarkingStatus(false);
+      }
+    );
+  };
 
   if (loading) {
     return <div className="flex justify-center items-center h-64 text-[#777A7C]">Loading dashboard...</div>;
@@ -55,16 +88,39 @@ export default function EmployeeDashboard() {
         <div className="bg-white rounded-2xl p-5 border border-[#E6E3DE] shadow-sm flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2 text-xs font-medium text-[#777A7C] mb-2">
-              <span className="w-2 h-2 rounded-full bg-[#7FAF3F]"></span> Today's Status
+              <span className={`w-2 h-2 rounded-full ${todayRecord?.checkIn && !todayRecord?.checkOut ? 'bg-[#7FAF3F]' : todayRecord?.checkOut ? 'bg-[#E5A83B]' : 'bg-[#E56B65]'}`}></span> Today's Status
             </div>
-            <div className="text-2xl font-bold text-[#2D3032]">Present</div>
-            <div className="text-xs text-[#9A9C9D] mt-1">Checked in at 09:12 AM</div>
+            <div className="text-2xl font-bold text-[#2D3032]">
+              {todayRecord?.checkIn && !todayRecord?.checkOut ? 'Checked In' : todayRecord?.checkOut ? 'Checked Out' : 'Not Checked In'}
+            </div>
+            <div className="text-xs text-[#9A9C9D] mt-1">
+              {todayRecord?.checkIn ? `At ${new Date(todayRecord.checkIn).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}` : 'Use button to mark attendance'}
+            </div>
           </div>
-          <div className="relative flex items-center justify-center w-14 h-14 rounded-full border-4 border-[#7FAF3F]/20 text-[#7FAF3F]">
-            <svg className="absolute inset-0 w-full h-full" viewBox="0 0 36 36">
-              <path className="text-[#7FAF3F]" strokeDasharray="75, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3" />
-            </svg>
-            <CalendarCheck className="w-5 h-5" />
+          <div className="flex flex-col gap-2">
+            {!todayRecord?.checkIn && (
+              <button 
+                onClick={() => handleMarkAttendance('checkin')}
+                disabled={markingStatus}
+                className="bg-[#7FAF3F] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#668F2F] disabled:opacity-50 transition-all shadow-sm"
+              >
+                {markingStatus ? 'Checking In...' : 'Check In'}
+              </button>
+            )}
+            {todayRecord?.checkIn && !todayRecord?.checkOut && (
+              <button 
+                onClick={() => handleMarkAttendance('checkout')}
+                disabled={markingStatus}
+                className="bg-[#E5A83B] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#C88A2E] disabled:opacity-50 transition-all shadow-sm"
+              >
+                {markingStatus ? 'Checking Out...' : 'Check Out'}
+              </button>
+            )}
+            {todayRecord?.checkOut && (
+              <div className="relative flex items-center justify-center w-12 h-12 rounded-full border-4 border-[#7FAF3F]/20 text-[#7FAF3F]">
+                <CalendarCheck className="w-5 h-5" />
+              </div>
+            )}
           </div>
         </div>
 

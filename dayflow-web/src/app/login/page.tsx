@@ -85,8 +85,8 @@ export default function AuthPage() {
     setError('');
     setSuccess('');
     try {
-      const data = await api.login({ email: 'OIALMA20220001', password: 'password' });
-      setEmail('OIALMA20220001');
+      const data = await api.login({ email: 'OIALMA20220008', password: 'password' });
+      setEmail('OIALMA20220008');
       setPassword('password');
       setSuccess('Logged in successfully as Admin! Redirecting...');
       setTimeout(() => {
