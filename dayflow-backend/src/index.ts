@@ -163,7 +163,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
   }
 
   const user = await prisma.user.findFirst({
-    where: { 
+    where: {
       employeeId: (email || '').toUpperCase()
     },
     include: { privateInfo: true, salaryStructure: true },
@@ -227,10 +227,10 @@ app.post('/api/auth/switch-role', async (req: Request, res: Response) => {
     // Store fallback
     const currentRole = activeSessionUser.role;
     const newRole = (currentRole === 'HR_ADMIN' || currentRole === 'HR') ? 'Employee' : 'HR';
-    
+
     // Update activeSessionUser role
     activeSessionUser.role = newRole === 'HR' ? 'HR_ADMIN' : 'EMPLOYEE';
-    
+
     // Find matching user in store to keep sync
     const storeUser = store.users.find(u => u.id === activeSessionUser.id || u.email === activeSessionUser.email);
     if (storeUser) {
@@ -526,7 +526,7 @@ app.post('/api/attendance', async (req: Request, res: Response) => {
   let tTotalHours = '--';
   const cIn = new Date(`${date}T${checkIn}`);
   const cOut = checkOut ? new Date(`${date}T${checkOut}`) : null;
-  
+
   if (cOut) {
     let ms = cOut.getTime() - cIn.getTime();
     if (ms < 0) ms += 24 * 60 * 60 * 1000; // handle overnight
@@ -590,11 +590,11 @@ app.get('/api/attendance/today', async (req: Request, res: Response) => {
 app.post('/api/attendance/mark', async (req: Request, res: Response) => {
   if (!activeSessionUser) return res.status(401).json({ error: 'Unauthorized' });
   const { type, location } = req.body; // type = 'checkin' or 'checkout'
-  
+
   const now = new Date();
   const todayUTC = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
   const tomorrowUTC = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate() + 1));
-  
+
   try {
     let record = await prisma.attendance.findFirst({
       where: { userId: activeSessionUser.id, date: { gte: todayUTC, lt: tomorrowUTC } },
@@ -613,12 +613,12 @@ app.post('/api/attendance/mark', async (req: Request, res: Response) => {
     } else if (type === 'checkout') {
       if (!record) return res.status(400).json({ error: 'Not checked in yet' });
       if (record.checkOut) return res.status(400).json({ error: 'Already checked out today' });
-      
+
       const cOut = new Date();
       let ms = cOut.getTime() - record.checkIn!.getTime();
       if (ms < 0) ms += 24 * 60 * 60 * 1000;
       const hrs = ms / (1000 * 60 * 60);
-      
+
       let workHours = 0;
       let extraHours = 0;
       if (hrs > 8) {
@@ -871,10 +871,10 @@ app.put('/api/leaves/:id/approve', requireAdmin, async (req: Request, res: Respo
     const leave = await prisma.leaveRequest.findUnique({ where: { id: req.params.id }, include: { user: true } });
     if (!leave) return res.status(404).json({ error: 'Leave request not found' });
     const updated = await prisma.leaveRequest.update({ where: { id: req.params.id }, data: { status: LeaveStatus.APPROVED, adminComment: comment || null } });
-    await prisma.leaveBalance.updateMany({ where: { userId: leave.userId, type: leave.type, year: new Date().getFullYear() }, data: { usedDays: { increment: Number(leave.days) } } }).catch(() => {});
+    await prisma.leaveBalance.updateMany({ where: { userId: leave.userId, type: leave.type, year: new Date().getFullYear() }, data: { usedDays: { increment: Number(leave.days) } } }).catch(() => { });
     const start = new Date(leave.startDate); const end = new Date(leave.endDate); const current = new Date(start);
-    while (current <= end) { await prisma.attendance.upsert({ where: { userId_date: { userId: leave.userId, date: new Date(current) } }, update: { status: AttendanceStatus.LEAVE }, create: { userId: leave.userId, date: new Date(current), status: AttendanceStatus.LEAVE, workHours: 0 } }).catch(() => {}); current.setDate(current.getDate() + 1); }
-    await prisma.notification.create({ data: { userId: leave.userId, type: 'LEAVE', title: 'Leave Request Approved', message: `Your leave request was approved.${comment ? ' Comment: ' + comment : ''}` } }).catch(() => {});
+    while (current <= end) { await prisma.attendance.upsert({ where: { userId_date: { userId: leave.userId, date: new Date(current) } }, update: { status: AttendanceStatus.LEAVE }, create: { userId: leave.userId, date: new Date(current), status: AttendanceStatus.LEAVE, workHours: 0 } }).catch(() => { }); current.setDate(current.getDate() + 1); }
+    await prisma.notification.create({ data: { userId: leave.userId, type: 'LEAVE', title: 'Leave Request Approved', message: `Your leave request was approved.${comment ? ' Comment: ' + comment : ''}` } }).catch(() => { });
     const leaveTypeMap: Record<string, string> = { PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave', UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave' };
     res.json({ id: updated.id, employeeId: leave.user.employeeId, leaveType: leaveTypeMap[updated.type] || updated.type, startDate: updated.startDate.toISOString().split('T')[0], endDate: updated.endDate.toISOString().split('T')[0], duration: Number(updated.days), reason: updated.reason, status: 'Approved', appliedAt: updated.appliedOn.toISOString().split('T')[0] });
   } catch {
@@ -893,7 +893,7 @@ app.put('/api/leaves/:id/reject', requireAdmin, async (req: Request, res: Respon
     const leave = await prisma.leaveRequest.findUnique({ where: { id: req.params.id }, include: { user: true } });
     if (!leave) return res.status(404).json({ error: 'Leave request not found' });
     const updated = await prisma.leaveRequest.update({ where: { id: req.params.id }, data: { status: LeaveStatus.REJECTED, adminComment: comment } });
-    await prisma.notification.create({ data: { userId: leave.userId, type: 'LEAVE', title: 'Leave Request Rejected', message: `Your leave request was rejected. Reason: ${comment}` } }).catch(() => {});
+    await prisma.notification.create({ data: { userId: leave.userId, type: 'LEAVE', title: 'Leave Request Rejected', message: `Your leave request was rejected. Reason: ${comment}` } }).catch(() => { });
     const leaveTypeMap: Record<string, string> = { PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave', UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave' };
     res.json({ id: updated.id, employeeId: leave.user.employeeId, leaveType: leaveTypeMap[updated.type] || updated.type, startDate: updated.startDate.toISOString().split('T')[0], endDate: updated.endDate.toISOString().split('T')[0], duration: Number(updated.days), reason: updated.reason, status: 'Rejected', rejectionReason: comment, appliedAt: updated.appliedOn.toISOString().split('T')[0] });
   } catch {
@@ -941,7 +941,7 @@ app.get('/api/payroll', async (req: Request, res: Response) => {
         const pf = Math.round(gross * 0.08);
         const tax = Math.round(gross * 0.12);
         const deductions = pf + tax;
-        return { id: `PAY-${emp.id}`, employeeId: emp.employeeId, payrollMonth: month || new Date().toISOString().slice(0,7), basicSalary: gross, allowances: emp.allowances || 0, bonus: 0, overtime: 0, grossSalary: gross, tax, pf, otherDeductions: 0, totalDeductions: deductions, netSalary: gross - deductions, status: 'Draft', employeeName: `${emp.firstName} ${emp.lastName}` };
+        return { id: `PAY-${emp.id}`, employeeId: emp.employeeId, payrollMonth: month || new Date().toISOString().slice(0, 7), basicSalary: gross, allowances: emp.allowances || 0, bonus: 0, overtime: 0, grossSalary: gross, tax, pf, otherDeductions: 0, totalDeductions: deductions, netSalary: gross - deductions, status: 'Draft', employeeName: `${emp.firstName} ${emp.lastName}` };
       });
       return res.json(list);
     }
@@ -995,17 +995,17 @@ app.get('/api/payroll', async (req: Request, res: Response) => {
       const pGross = Number(p.grossSalary);
       const pTotalDed = Number(p.totalDeductions);
       const pNet = Number(p.netSalary);
-      
+
       // Summing earnings from items
       const earningsItems = p.items.filter(i => i.category === 'EARNING');
       const basicEarn = earningsItems.find(i => i.name === 'Basic Salary')?.amount || (pGross * 0.5); // Fallback if no items
       const otherEarn = earningsItems.filter(i => i.name !== 'Basic Salary').reduce((s, i) => s + Number(i.amount), 0) || (pGross * 0.5);
-      
+
       // Summing deductions from items
       const dedItems = p.items.filter(i => i.category === 'DEDUCTION');
       const pfDed = dedItems.find(i => i.name.toLowerCase().includes('pf') || i.name.toLowerCase().includes('provident'))?.amount || (pTotalDed * 0.4);
       const taxDed = dedItems.find(i => i.name.toLowerCase().includes('tax'))?.amount || (pTotalDed * 0.6);
-      
+
       return {
         month: `${monthNames[p.month - 1]?.slice(0, 3)} ${p.year}`,
         paidOn: p.paidOn ? new Date(p.paidOn).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Pending',
@@ -1026,8 +1026,8 @@ app.get('/api/payroll', async (req: Request, res: Response) => {
     });
 
     if (historyList.length === 0) {
-      historyList.push({ 
-        month: 'Jul 2026', 
+      historyList.push({
+        month: 'Jul 2026',
         amount: `₹${netSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
         ...currentPayload
       });
@@ -1080,7 +1080,7 @@ app.post('/api/payroll/generate', requireAdmin, async (req: Request, res: Respon
   const monthNum = parseInt(monthStr);
 
   const users = await prisma.user.findMany({
-    include: { 
+    include: {
       salaryStructure: { include: { components: true } },
       attendance: {
         where: {
