@@ -1263,41 +1263,7 @@ app.post('/api/admin/reimbursements/:id/payroll', requireAdmin, (req: Request, r
 });
 
 
-// ================= REIMBURSEMENTS (MOCK) =================
-let reimbursements: any[] = [
-  { id: 'REIM-001', employeeId: 'OIALMA20230002', date: '2026-08-15', category: 'Travel', amount: 350.00, status: 'Pending', description: 'Flight to NYC' },
-  { id: 'REIM-002', employeeId: 'OIALMA20230002', date: '2026-08-16', category: 'Meals', amount: 45.50, status: 'Approved', description: 'Client Dinner' }
-];
 
-app.get('/api/reimbursements', (req: Request, res: Response) => {
-  // Return just the current user's reimbursements (mocked as the first employee for now)
-  const userReimbursements = reimbursements.filter(r => r.employeeId === (store.activeSessionUser?.employeeId || 'OIALMA20230002'));
-  res.json(userReimbursements);
-});
-
-app.get('/api/admin/reimbursements', (req: Request, res: Response) => {
-  // Return all reimbursements with employee names
-  const enriched = reimbursements.map(r => {
-    const emp = store.employees.find(e => e.id === r.employeeId);
-    return { ...r, employeeName: emp ? `${emp.firstName} ${emp.lastName}` : 'Unknown' };
-  });
-  res.json(enriched);
-});
-
-app.post('/api/reimbursements', (req: Request, res: Response) => {
-  const { date, category, amount, description } = req.body;
-  const newReimbursement = {
-    id: `REIM-00${reimbursements.length + 1}`,
-    employeeId: store.activeSessionUser?.employeeId || 'OIALMA20230002',
-    date,
-    category,
-    amount: parseFloat(amount),
-    status: 'Pending',
-    description
-  };
-  reimbursements.push(newReimbursement);
-  res.json(newReimbursement);
-});
 
 app.listen(port, () => {
   console.log(`⚡️[server]: Server is running at http://localhost:${port} (PostgreSQL connected)`);
