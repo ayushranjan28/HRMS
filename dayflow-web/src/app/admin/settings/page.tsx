@@ -62,7 +62,7 @@ export default function HRSettings() {
 
   const handleCompanyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setCompany(prev => ({
+    setCompany((prev: any) => ({
       ...prev,
       [name]: value
     }));

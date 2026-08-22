@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { 
   LayoutDashboard, CalendarCheck, FileText, User, 
   Folder, Calendar, Bell, BarChart2, Settings, LogOut, 
-  Leaf, Users
+  Leaf, Users, Plane, Wallet
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import * as api from '@/services/api';
@@ -14,6 +14,7 @@ const employeeNav = [
   { name: 'My Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'My Attendance', href: '/attendance', icon: CalendarCheck },
   { name: 'Leave & Time-off', href: '/leave', icon: Calendar },
+  { name: 'Tour Expenses', href: '/tour-expenses', icon: Plane },
   { name: 'My Payslip', href: '/payroll', icon: FileText },
   { name: 'My Profile', href: '/profile', icon: User },
 ];
@@ -23,6 +24,7 @@ const adminNav = [
   { name: 'Directory', href: '/admin/directory', icon: Users },
   { name: 'All Attendance', href: '/admin/attendance', icon: CalendarCheck },
   { name: 'Leave Approvals', href: '/admin/leaves', icon: Calendar },
+  { name: 'Expense Claims', href: '/admin/expenses', icon: Wallet },
   { name: 'Payroll Control', href: '/admin/payroll', icon: FileText },
   { name: 'Reports & Analytics', href: '/reports', icon: BarChart2 },
 ];
@@ -98,7 +100,7 @@ export function Sidebar() {
             </div>
           )}
           {(role === 'HR' && isAdminView ? adminNav : employeeNav).map((item) => {
-            const isActive = pathname === item.href;
+            const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
             const Icon = item.icon;
             return (
               <Link

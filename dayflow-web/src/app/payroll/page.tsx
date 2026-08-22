@@ -77,6 +77,12 @@ export default function PayrollPage() {
                 <span className="text-[#777A7C] font-medium">Other Allowances</span>
                 <span className="font-semibold text-[#2D3032]">{data.current.earnings.other}</span>
               </div>
+              {data.current.earnings.tourReimbursement && (
+                <div className="flex justify-between items-center bg-[#B5F12C]/10 p-2.5 rounded-lg border border-[#B5F12C]/20 mt-1">
+                  <span className="text-brand-green font-bold">Tour Reimbursement</span>
+                  <span className="font-extrabold text-[#151413]">{data.current.earnings.tourReimbursement}</span>
+                </div>
+              )}
             </div>
           </div>
 

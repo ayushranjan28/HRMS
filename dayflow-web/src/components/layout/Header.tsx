@@ -141,6 +141,18 @@ export function Header() {
     return id || 'Employee';
   }
 
+  const handleNotifClick = (noti: any) => {
+    markRead(noti.id);
+    setShowNotifDropdown(false);
+    if (noti.title.toLowerCase().includes('expense') || noti.title.toLowerCase().includes('reimbursement')) {
+      if (currentUser?.role === 'HR') {
+        window.location.href = '/admin/expenses';
+      } else {
+        window.location.href = '/tour-expenses';
+      }
+    }
+  };
+
   return (
     <header className="flex h-24 shrink-0 items-center justify-between px-10 relative z-30">
       <div className="flex flex-1 items-center">
@@ -175,7 +187,7 @@ export function Header() {
             )}
             <Bell className="h-5 w-5" strokeWidth={2} />
           </button>
-
+ 
           {/* Notifications Dropdown */}
           {showNotifDropdown && (
             <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl border border-[#E6E3DE] shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
@@ -197,7 +209,8 @@ export function Header() {
                   notifications.map((n) => (
                     <div 
                       key={n.id} 
-                      className={`p-3.5 hover:bg-[#F7F5F1]/30 transition-colors relative flex gap-2.5 items-start ${!n.isRead ? 'bg-[#7FAF3F]/5' : ''}`}
+                      onClick={() => handleNotifClick(n)}
+                      className={`p-3.5 hover:bg-[#F7F5F1]/30 transition-colors relative flex gap-2.5 items-start cursor-pointer ${!n.isRead ? 'bg-[#7FAF3F]/5' : ''}`}
                     >
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-bold text-[#2D3032]">{n.title}</div>

@@ -2,7 +2,9 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { compareSync } from 'bcryptjs';
+import path from 'path';
 import * as store from './store';
+import { db, saveBase64File, ExpenseClaim, ExpenseCategory, ExpenseBill } from './db';
 
 dotenv.config();
 
@@ -10,7 +12,11 @@ const app: Express = express();
 const port = process.env.PORT || 8080;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Serve uploaded bill files statically
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 // Middleware to check admin role
 function requireAdmin(req: Request, res: Response, next: NextFunction) {
@@ -440,23 +446,142 @@ app.put('/api/leaves/:id/reject', requireAdmin, (req: Request, res: Response) =>
 // ================= PAYROLL =================
 app.get('/api/payroll', (req: Request, res: Response) => {
   const { month } = req.query;
-  let list = [...store.payrolls];
 
-  if (month) {
-    list = list.filter(p => p.payrollMonth === month);
+  // Determine user role
+  const isAdmin = store.activeSessionUser && store.activeSessionUser.role === 'HR';
+
+  if (isAdmin) {
+    let list = [...store.payrolls];
+    if (month) {
+      list = list.filter(p => p.payrollMonth === month);
+    }
+    const result = list.map(p => {
+      const emp = store.employees.find(e => e.id === p.employeeId);
+      return {
+        ...p,
+        employeeName: emp ? `${emp.firstName} ${emp.lastName}` : 'Unknown',
+        employeeId: p.employeeId,
+        department: emp ? store.departments.find(d => d.id === emp.departmentId)?.name : 'Unknown'
+      };
+    });
+    return res.json(result);
   }
 
-  const result = list.map(p => {
-    const emp = store.employees.find(e => e.id === p.employeeId);
+  // Employee Mode: Return `{ current: { month, paidOn, netSalary, earnings, deductions }, history }`
+  const employeeId = store.activeSessionUser ? store.activeSessionUser.employeeId : 'EMP001';
+  const employee = store.employees.find(e => e.id === employeeId);
+
+  // Find payroll history for this employee
+  const empPayrolls = store.payrolls.filter(p => p.employeeId === employeeId);
+
+  // Default to a current month slip if none generated yet
+  const activeMonthCode = '2026-07';
+  const activeMonthName = 'July 2026';
+  
+  let currentPayroll = empPayrolls.find(p => p.payrollMonth === activeMonthCode);
+  if (!currentPayroll) {
+    const basic = employee ? employee.baseSalary : 4500;
+    const allowances = employee ? employee.allowances : 1000;
+    const gross = basic + allowances;
+    const pf = Math.round(basic * 0.08);
+    const tax = Math.round(gross * 0.12);
+    const deductions = pf + tax;
+    const net = gross - deductions;
+
+    currentPayroll = {
+      id: `PAY-${employeeId}-${activeMonthCode}`,
+      employeeId,
+      payrollMonth: activeMonthCode,
+      basicSalary: basic,
+      allowances,
+      bonus: 0,
+      overtime: 0,
+      grossSalary: gross,
+      tax,
+      pf,
+      otherDeductions: 0,
+      totalDeductions: deductions,
+      netSalary: net,
+      status: 'Paid'
+    };
+  }
+
+  // Now check for Tour Reimbursement claims linked to this slip!
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const parsedMonthNum = parseInt(currentPayroll.payrollMonth.split('-')[1] || '7');
+  const currentMonthName = monthNames[parsedMonthNum - 1] || 'July';
+  const currentYearName = currentPayroll.payrollMonth.split('-')[0] || '2026';
+
+  const matchedClaims = db.getClaimsByEmployee(employeeId).filter(c => 
+    c.payroll_added && 
+    c.payroll_month === currentMonthName && 
+    c.payroll_year === currentYearName
+  );
+
+  const tourReimbursementVal = matchedClaims.reduce((sum, c) => sum + (c.approved_total || 0), 0);
+
+  const basicVal = currentPayroll.basicSalary;
+  const allowancesVal = currentPayroll.allowances + currentPayroll.bonus + currentPayroll.overtime;
+  
+  const taxVal = currentPayroll.tax;
+  const pfVal = currentPayroll.pf;
+  const otherDedVal = currentPayroll.otherDeductions;
+
+  const totalEarningsVal = basicVal + allowancesVal + tourReimbursementVal;
+  const totalDeductionsVal = taxVal + pfVal + otherDedVal;
+  const netSalaryVal = totalEarningsVal - totalDeductionsVal;
+
+  const currentPayload = {
+    month: `${currentMonthName} ${currentYearName}`,
+    paidOn: currentPayroll.status === 'Paid' ? `30 ${currentMonthName.slice(0, 3)} ${currentYearName}` : 'Pending',
+    netSalary: `$${netSalaryVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    earnings: {
+      total: `$${totalEarningsVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      basic: `$${basicVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      house: `$${Math.round(basicVal * 0.25).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      conveyance: `$${Math.round(basicVal * 0.10).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      other: `$${allowancesVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      tourReimbursement: tourReimbursementVal > 0 ? `$${tourReimbursementVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null
+    },
+    deductions: {
+      total: `$${totalDeductionsVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      providentFund: `$${pfVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      professionalTax: `$200.00`,
+      incomeTax: `$${taxVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      other: `$${otherDedVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    }
+  };
+
+  const historyList = empPayrolls.map(p => {
+    const pMonthNum = parseInt(p.payrollMonth.split('-')[1] || '7');
+    const pMonthName = monthNames[pMonthNum - 1] || 'July';
+    const pYear = p.payrollMonth.split('-')[0] || '2026';
+    
+    const pClaims = db.getClaimsByEmployee(employeeId).filter(c => 
+      c.payroll_added && 
+      c.payroll_month === pMonthName && 
+      c.payroll_year === pYear
+    );
+    const pReimb = pClaims.reduce((sum, c) => sum + (c.approved_total || 0), 0);
+    const pNet = p.netSalary + pReimb;
+
     return {
-      ...p,
-      employeeName: emp ? `${emp.firstName} ${emp.lastName}` : 'Unknown',
-      employeeId: p.employeeId,
-      department: emp ? store.departments.find(d => d.id === emp.departmentId)?.name : 'Unknown'
+      month: `${pMonthName.slice(0, 3)} ${pYear}`,
+      amount: `$${pNet.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     };
   });
 
-  res.json(result);
+  if (historyList.length === 0) {
+    historyList.push({
+      month: `${currentMonthName.slice(0, 3)} ${currentYearName}`,
+      amount: `$${netSalaryVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    });
+  }
+
+  res.json({
+    current: currentPayload,
+    history: historyList
+  });
 });
 
 app.post('/api/payroll/generate', requireAdmin, (req: Request, res: Response) => {
@@ -760,6 +885,246 @@ app.post('/api/settings/designations', requireAdmin, (req: Request, res: Respons
   if (!name || !departmentId) return res.status(400).json({ error: 'Name and Department ID are required' });
   const desig = store.addDesignation(name, departmentId);
   res.json(desig);
+});
+
+
+// ================= TOUR EXPENSE REIMBURSEMENT APIs =================
+
+// Submit new claim (Employee)
+app.post('/api/reimbursements', (req: Request, res: Response) => {
+  const { 
+    employeeId, employeeName, employeeDepartment, 
+    tourTitle, destination, startDate, endDate, purpose, categories 
+  } = req.body;
+
+  if (!tourTitle || !destination || !startDate || !endDate || !categories || categories.length === 0) {
+    return res.status(400).json({ error: 'Missing required tour or category receipts details.' });
+  }
+
+  // Calculate claimed total
+  let totalClaimed = 0;
+  categories.forEach((cat: any) => {
+    cat.bills.forEach((bill: any) => {
+      totalClaimed += Number(bill.amount || 0);
+    });
+  });
+
+  const claimId = `CLM-${Date.now()}`;
+  const newClaim: ExpenseClaim = {
+    id: claimId,
+    employee_id: employeeId || (store.activeSessionUser ? store.activeSessionUser.employeeId : 'EMP001'),
+    employee_name: employeeName || 'Alex Martin',
+    employee_department: employeeDepartment || 'Design',
+    tour_title: tourTitle,
+    destination,
+    start_date: startDate,
+    end_date: endDate,
+    purpose: purpose || '',
+    claimed_total: totalClaimed,
+    approved_total: 0,
+    status: 'pending',
+    submitted_at: new Date().toISOString(),
+    payroll_added: false
+  };
+
+  // Save claim
+  db.saveClaim(newClaim);
+
+  // Process categories and files
+  categories.forEach((cat: any) => {
+    const catId = `CAT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    
+    let catTotal = 0;
+    cat.bills.forEach((bill: any) => {
+      catTotal += Number(bill.amount || 0);
+    });
+
+    const newCategory: ExpenseCategory = {
+      id: catId,
+      expense_claim_id: claimId,
+      category_name: cat.name,
+      employee_category_total: catTotal,
+      hr_category_total: 0,
+      review_status: 'pending'
+    };
+
+    db.saveCategory(newCategory);
+
+    cat.bills.forEach((bill: any) => {
+      const savedFileName = saveBase64File(bill.name, bill.base64);
+      const newBill: ExpenseBill = {
+        id: `BIL-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+        expense_claim_id: claimId,
+        expense_category_id: catId,
+        bill_file: savedFileName,
+        original_file_name: bill.name,
+        employee_amount: Number(bill.amount),
+        hr_approved_amount: null,
+        created_at: new Date().toISOString()
+      };
+      db.saveBill(newBill);
+    });
+  });
+
+  // Push HR notification in store
+  store.notifications.unshift({
+    id: `NOT-${Date.now()}`,
+    userId: 'U1', // Admin/HR user ID
+    title: 'New Expense Claim Submitted',
+    message: `${newClaim.employee_name} submitted a claim of ₹${newClaim.claimed_total.toLocaleString('en-IN')} for '${newClaim.tour_title}'.`,
+    type: 'payroll',
+    isRead: false,
+    createdAt: new Date().toISOString()
+  });
+
+  res.json({ success: true, claimId });
+});
+
+// Get employee claims list
+app.get('/api/reimbursements', (req: Request, res: Response) => {
+  const empId = store.activeSessionUser ? store.activeSessionUser.employeeId : 'EMP001';
+  const claims = db.getClaimsByEmployee(empId);
+  res.json(claims);
+});
+
+// Get admin claims list (HR)
+app.get('/api/admin/reimbursements', requireAdmin, (req: Request, res: Response) => {
+  const claims = db.getClaims();
+  res.json(claims);
+});
+
+// Get claim details (Employee & HR)
+app.get('/api/reimbursements/:id', (req: Request, res: Response) => {
+  const claim = db.getClaimById(req.params.id);
+  if (!claim) {
+    return res.status(404).json({ error: 'Claim record not found.' });
+  }
+
+  const categories = db.getCategoriesByClaim(claim.id);
+  const bills = db.getBillsByClaim(claim.id);
+
+  res.json({ claim, categories, bills });
+});
+
+// Save category review (HR)
+app.put('/api/admin/reimbursements/:id/category', requireAdmin, (req: Request, res: Response) => {
+  const { categoryId, bills: billUpdates } = req.body;
+  if (!categoryId || !billUpdates || !Array.isArray(billUpdates)) {
+    return res.status(400).json({ error: 'Missing category updates.' });
+  }
+
+  // Update bills
+  let hrCategoryTotal = 0;
+  billUpdates.forEach((u: any) => {
+    const dbBill = db.getBillsByClaim(req.params.id).find(b => b.id === u.id);
+    if (dbBill) {
+      dbBill.hr_approved_amount = u.hrApprovedAmount === null ? null : Number(u.hrApprovedAmount);
+      db.saveBill(dbBill);
+      if (dbBill.hr_approved_amount !== null) {
+        hrCategoryTotal += dbBill.hr_approved_amount;
+      }
+    }
+  });
+
+  // Update category status
+  const dbCategory = db.getCategoriesByClaim(req.params.id).find(c => c.id === categoryId);
+  if (dbCategory) {
+    dbCategory.hr_category_total = hrCategoryTotal;
+    dbCategory.review_status = 'reviewed';
+    dbCategory.reviewed_at = new Date().toISOString();
+    db.saveCategory(dbCategory);
+  }
+
+  res.json({ success: true, hrCategoryTotal, reviewStatus: 'reviewed' });
+});
+
+// Finalize claim decision (HR)
+app.post('/api/admin/reimbursements/:id/finalize', requireAdmin, (req: Request, res: Response) => {
+  const { reason } = req.body;
+  const claim = db.getClaimById(req.params.id);
+  if (!claim) {
+    return res.status(404).json({ error: 'Claim not found.' });
+  }
+
+  const categories = db.getCategoriesByClaim(claim.id);
+  const bills = db.getBillsByClaim(claim.id);
+
+  // Double check that all categories are reviewed
+  const unreviewedCat = categories.some(c => c.review_status !== 'reviewed');
+  const unreviewedBill = bills.some(b => b.hr_approved_amount === null);
+  if (unreviewedCat || unreviewedBill) {
+    return res.status(400).json({ error: 'Please save reviews for all categories before making final decision.' });
+  }
+
+  // Calculate final approved total
+  const finalApprovedTotal = categories.reduce((sum, c) => sum + (c.hr_category_total || 0), 0);
+
+  // Categorize decision
+  let decision: 'approved' | 'partially_approved' | 'rejected' = 'approved';
+  if (finalApprovedTotal === 0) {
+    decision = 'rejected';
+  } else if (finalApprovedTotal < claim.claimed_total) {
+    decision = 'partially_approved';
+  }
+
+  if (decision !== 'approved' && !reason?.trim()) {
+    return res.status(400).json({ error: `Mandatory reason required for ${decision.replace('_', ' ')}.` });
+  }
+
+  claim.status = decision;
+  claim.approved_total = finalApprovedTotal;
+  claim.hr_reason = reason || '';
+  claim.reviewed_at = new Date().toISOString();
+  claim.reviewed_by = store.activeSessionUser ? store.activeSessionUser.employeeId : 'HR001';
+
+  db.saveClaim(claim);
+
+  // Push Employee notification in store
+  store.notifications.unshift({
+    id: `NOT-${Date.now()}`,
+    userId: claim.employee_id, // Employee user ID
+    title: `Tour Reimbursement ${decision === 'approved' ? 'Approved' : decision === 'rejected' ? 'Rejected' : 'Partially Approved'}`,
+    message: `Your claim of ₹${claim.claimed_total.toLocaleString('en-IN')} for '${claim.tour_title}' has been reviewed: ${decision.toUpperCase()}. Approved amount: ₹${finalApprovedTotal.toLocaleString('en-IN')}.`,
+    type: 'payroll',
+    isRead: false,
+    createdAt: new Date().toISOString()
+  });
+
+  res.json({ success: true, status: decision, approvedTotal: finalApprovedTotal });
+});
+
+// Link reimbursement to payroll period (HR)
+app.post('/api/admin/reimbursements/:id/payroll', requireAdmin, (req: Request, res: Response) => {
+  const { month, year } = req.body;
+  if (!month || !year) {
+    return res.status(400).json({ error: 'Month and year are required.' });
+  }
+
+  const claim = db.getClaimById(req.params.id);
+  if (!claim) {
+    return res.status(404).json({ error: 'Claim not found.' });
+  }
+
+  if (claim.status === 'pending' || claim.status === 'rejected') {
+    return res.status(400).json({ error: 'Reimbursement claim must be approved or partially approved first.' });
+  }
+
+  // Update claim
+  claim.payroll_added = true;
+  claim.payroll_month = month;
+  claim.payroll_year = year;
+  claim.payroll_entry_id = `PAY-ENT-${Date.now()}`;
+  db.saveClaim(claim);
+
+  // Append to payroll array if exists
+  const monthCode = `${year}-${month === 'January' ? '01' : month === 'February' ? '02' : month === 'March' ? '03' : month === 'April' ? '04' : month === 'May' ? '05' : month === 'June' ? '06' : month === 'July' ? '07' : month === 'August' ? '08' : month === 'September' ? '09' : month === 'October' ? '10' : month === 'November' ? '11' : '12'}`;
+  const payrollRecord = store.payrolls.find(p => p.employeeId === claim.employee_id && p.payrollMonth === monthCode);
+  if (payrollRecord) {
+    payrollRecord.netSalary += claim.approved_total;
+    payrollRecord.grossSalary += claim.approved_total;
+  }
+
+  res.json({ success: true, message: `Successfully linked reimbursement to ${month} ${year} payslip.` });
 });
 
 

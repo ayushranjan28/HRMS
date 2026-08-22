@@ -230,4 +230,40 @@ export const getPayrollData = async () => {
   return response.data;
 };
 
+// Tour Reimbursement
+export const submitReimbursement = async (payload: any) => {
+  const response = await api.post('/reimbursements', payload);
+  return response.data;
+};
+
+export const getReimbursements = async () => {
+  const response = await api.get('/reimbursements');
+  return response.data;
+};
+
+export const getAdminReimbursements = async () => {
+  const response = await api.get('/admin/reimbursements');
+  return response.data;
+};
+
+export const getReimbursementById = async (id: string) => {
+  const response = await api.get(`/reimbursements/${id}`);
+  return response.data;
+};
+
+export const saveCategoryReview = async (claimId: string, categoryId: string, bills: any[]) => {
+  const response = await api.put(`/admin/reimbursements/${claimId}/category`, { categoryId, bills });
+  return response.data;
+};
+
+export const finalizeReimbursement = async (claimId: string, reason?: string) => {
+  const response = await api.post(`/admin/reimbursements/${claimId}/finalize`, { reason });
+  return response.data;
+};
+
+export const addReimbursementToPayroll = async (claimId: string, month: string, year: string) => {
+  const response = await api.post(`/admin/reimbursements/${claimId}/payroll`, { month, year });
+  return response.data;
+};
+
 export default api;
