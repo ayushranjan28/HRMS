@@ -678,6 +678,13 @@ app.post('/api/attendance/mark', async (req: Request, res: Response) => {
     const todayStr = new Date().toISOString().split('T')[0];
     let recordIdx = store.attendance.findIndex(a => a.employeeId === empId && a.date === todayStr);
 
+    let locStr = 'Office';
+    if (typeof location === 'string') {
+      locStr = location;
+    } else if (location && typeof location === 'object' && 'lat' in location && 'lng' in location) {
+      locStr = `Lat: ${location.lat.toFixed(2)}, Lng: ${location.lng.toFixed(2)}`;
+    }
+
     if (type === 'checkin') {
       if (recordIdx !== -1) return res.status(400).json({ error: 'Already checked in today' });
       const newAtt: store.Attendance = {
@@ -688,7 +695,7 @@ app.post('/api/attendance/mark', async (req: Request, res: Response) => {
         checkOut: '',
         totalHours: '--',
         status: 'Present',
-        location: location || 'Office',
+        location: locStr,
       };
       store.attendance.push(newAtt);
       return res.json({ message: `Successfully checked in`, record: newAtt });
