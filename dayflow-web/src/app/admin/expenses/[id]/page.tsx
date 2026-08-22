@@ -359,7 +359,7 @@ export default function AdminClaimReviewPage({ params }: PageProps) {
                         className="w-10 h-10 bg-gray-100 rounded-lg overflow-hidden border border-gray-200 cursor-pointer flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors"
                         onClick={() => handleOpenLightbox(activeCategory.id, idx)}
                       >
-                        {bill.bill_file.endsWith('.pdf') ? <FileText size={16} /> : <img src={`http://localhost:8080/uploads/${bill.bill_file}`} className="w-full h-full object-cover" />}
+                        {bill.bill_file.endsWith('.pdf') ? <FileText size={16} /> : <img src={`http://localhost:8081/uploads/${bill.bill_file}`} className="w-full h-full object-cover" />}
                       </div>
                       <div>
                         <div className="font-semibold truncate max-w-[200px]" title={bill.original_file_name}>
@@ -689,10 +689,10 @@ export default function AdminClaimReviewPage({ params }: PageProps) {
 
             <div className="flex-1 flex items-center justify-center overflow-hidden min-h-[300px]">
               {zoomed.bill.bill_file.endsWith('.pdf') ? (
-                <iframe src={`http://localhost:8080/uploads/${zoomed.bill.bill_file}`} className="w-full h-[55vh] border-0" />
+                <iframe src={`http://localhost:8081/uploads/${zoomed.bill.bill_file}`} className="w-full h-[55vh] border-0" />
               ) : (
                 <img 
-                  src={`http://localhost:8080/uploads/${zoomed.bill.bill_file}`} 
+                  src={`http://localhost:8081/uploads/${zoomed.bill.bill_file}`} 
                   id="adminZoomBillImage" 
                   className="max-w-full max-h-[55vh] object-contain transition-transform duration-200" 
                 />

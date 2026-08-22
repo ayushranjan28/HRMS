@@ -11,7 +11,7 @@ import { db, saveBase64File, ExpenseClaim, ExpenseCategory, ExpenseBill } from '
 dotenv.config();
 
 const app: Express = express();
-const port = process.env.PORT || 8080;
+const port = process.env.PORT || 8081;
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -23,16 +23,30 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 // Active session tracking (kept in-memory for session management)
 let activeSessionUser: any = null;
 
-// Middleware to restore session from headers
 app.use(async (req, res, next) => {
   if (!activeSessionUser && req.headers['x-user-email']) {
     const email = req.headers['x-user-email'] as string;
-    const user = await prisma.user.findUnique({
-      where: { email },
-      include: { privateInfo: true, salaryStructure: true },
-    });
-    if (user) {
-      activeSessionUser = user;
+    try {
+      const user = await prisma.user.findUnique({
+        where: { email },
+        include: { privateInfo: true, salaryStructure: true },
+      });
+      if (user) {
+        activeSessionUser = user;
+      }
+    } catch {
+      // Store fallback
+      const storeUser = store.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+      if (storeUser) {
+        const storeEmp = store.employees.find(e => e.id === storeUser.employeeId);
+        activeSessionUser = {
+          id: storeUser.id,
+          role: storeUser.role === 'HR' ? 'HR_ADMIN' : 'EMPLOYEE',
+          employeeId: storeUser.employeeId,
+          email: storeUser.email,
+          fullName: storeEmp ? `${storeEmp.firstName} ${storeEmp.lastName}` : storeUser.username,
+        };
+      }
     }
   }
   next();
