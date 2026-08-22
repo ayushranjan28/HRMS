@@ -574,7 +574,7 @@ export function addEmployee(emp: Omit<Employee, 'id' | 'createdAt'>): Employee {
     username,
     email: emp.email,
     passwordHash: hashSync('password', 10),
-    role: emp.role as any || 'Employee',
+    role: (emp as any).role || 'Employee',
     employeeId: newEmp.id,
     createdAt: new Date().toISOString()
   };

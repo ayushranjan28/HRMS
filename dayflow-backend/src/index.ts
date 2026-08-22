@@ -866,10 +866,7 @@ app.get('/api/settings', (req: Request, res: Response) => {
 });
 
 app.put('/api/settings', requireAdmin, (req: Request, res: Response) => {
-  store.companySettings = {
-    ...store.companySettings,
-    ...req.body
-  };
+  Object.assign(store.companySettings, req.body);
   res.json(store.companySettings);
 });
 
