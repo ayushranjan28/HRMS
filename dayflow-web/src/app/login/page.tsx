@@ -85,12 +85,28 @@ export default function AuthPage() {
     setError('');
     setSuccess('');
     try {
-      const data = await api.login({ email: 'alex@dayflow.com', password: 'password' });
-      setEmail('alex@dayflow.com');
+      const data = await api.login({ email: 'OIALMA20220001', password: 'password' });
+      setEmail('OIALMA20220001');
       setPassword('password');
       setSuccess('Logged in successfully as Admin! Redirecting...');
       setTimeout(() => {
         router.push('/admin');
+      }, 1000);
+    } catch (err: any) {
+      setError('Quick login failed. Verify server status.');
+    }
+  };
+
+  const handleQuickEmployeeLogin = async () => {
+    setError('');
+    setSuccess('');
+    try {
+      const data = await api.login({ email: 'OIJACO20200001', password: 'password' });
+      setEmail('OIJACO20200001');
+      setPassword('password');
+      setSuccess('Logged in successfully as Employee! Redirecting...');
+      setTimeout(() => {
+        router.push('/');
       }, 1000);
     } catch (err: any) {
       setError('Quick login failed. Verify server status.');
@@ -374,9 +390,12 @@ export default function AuthPage() {
           <form onSubmit={handleSignIn} className="space-y-5">
 
             <div className="bg-[#CAB5F5]/10 border border-[#CAB5F5]/30 rounded-[14px] p-3.5 text-[11px] text-[#412A6E] leading-relaxed">
-              <span className="font-bold">🔑 Admin Mock Login Credentials:</span>
+              <span className="font-bold">🔑 System Mock Login Credentials:</span>
               <div className="mt-1">
-                <strong>Email:</strong> <code className="bg-white/80 px-1.5 py-0.5 rounded font-mono">alex@dayflow.com</code>
+                <strong>Admin Login ID:</strong> <code className="bg-white/80 px-1.5 py-0.5 rounded font-mono">OIALMA20220001</code>
+              </div>
+              <div className="mt-0.5">
+                <strong>Employee Login ID:</strong> <code className="bg-white/80 px-1.5 py-0.5 rounded font-mono">OIJACO20200001</code>
               </div>
               <div className="mt-0.5">
                 <strong>Password:</strong> <code className="bg-white/80 px-1.5 py-0.5 rounded font-mono">password</code>
@@ -438,13 +457,22 @@ export default function AuthPage() {
               Sign In
             </button>
 
-            <button
-              type="button"
-              onClick={handleQuickAdminLogin}
-              className="w-full py-2.5 bg-[#CAB5F5]/10 border border-[#CAB5F5] hover:bg-[#CAB5F5]/20 text-[#412A6E] font-bold rounded-[14px] shadow-sm transition-all active:scale-95 text-xs flex items-center justify-center gap-1.5"
-            >
-              ⚡ Quick Admin Login (alex@dayflow.com)
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleQuickAdminLogin}
+                className="flex-1 py-2.5 bg-[#CAB5F5]/10 border border-[#CAB5F5] hover:bg-[#CAB5F5]/20 text-[#412A6E] font-bold rounded-[14px] shadow-sm transition-all active:scale-95 text-[10px] flex items-center justify-center gap-1"
+              >
+                ⚡ Quick Admin
+              </button>
+              <button
+                type="button"
+                onClick={handleQuickEmployeeLogin}
+                className="flex-1 py-2.5 bg-[#67AFA5]/10 border border-[#67AFA5] hover:bg-[#67AFA5]/20 text-[#2B544E] font-bold rounded-[14px] shadow-sm transition-all active:scale-95 text-[10px] flex items-center justify-center gap-1"
+              >
+                ⚡ Quick Employee
+              </button>
+            </div>
 
             <p className="text-center text-xs text-[#5E5652] mt-4">
               New to Dayflow?{' '}

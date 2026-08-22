@@ -64,9 +64,31 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
-  const user = store.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+  const user = store.users.find(u => {
+    if (u.email.toLowerCase() === email.toLowerCase()) return true;
+    if (u.username.toLowerCase() === email.toLowerCase()) return true;
+    
+    // Check calculated system Login ID following Odoo India rule format
+    const emp = store.employees.find(e => e.id === u.employeeId);
+    if (emp) {
+      const empYear = emp.joiningDate ? new Date(emp.joiningDate).getFullYear() : 2026;
+      const empsSameYear = store.employees
+        .filter(e => e.joiningDate && new Date(e.joiningDate).getFullYear() === empYear)
+        .sort((a, b) => a.id.localeCompare(b.id));
+      const index = empsSameYear.findIndex(e => e.id === emp.id) + 1;
+      
+      const first2 = (emp.firstName || '').substring(0, 2).toUpperCase();
+      const last2 = (emp.lastName || '').substring(0, 2).toUpperCase();
+      const serial = String(index).padStart(4, '0');
+      const loginId = `OI${first2}${last2}${empYear}${serial}`;
+      
+      if (loginId.toUpperCase() === email.toUpperCase()) return true;
+    }
+    return false;
+  });
+
   if (!user || !compareSync(password, user.passwordHash)) {
-    return res.status(401).json({ error: 'Invalid email or password' });
+    return res.status(401).json({ error: 'Invalid credentials' });
   }
 
   store.setActiveSessionUser(user);
