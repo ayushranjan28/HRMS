@@ -335,30 +335,36 @@ export default function EmployeeDashboard() {
             <div className="bg-white rounded-2xl p-6 border border-[#E6E3DE] shadow-sm">
               <h2 className="text-[15px] font-semibold text-[#2D3032] mb-5">Quick Actions</h2>
               <div className="grid grid-cols-2 gap-3">
-                <button className="flex flex-col items-center justify-center p-3 rounded-xl border border-[#E6E3DE] hover:border-[#7FAF3F] hover:bg-[#F7F5F1] transition-colors text-center">
+                <button 
+                  onClick={() => handleMarkAttendance(todayRecord?.checkIn && !todayRecord?.checkOut ? 'checkout' : 'checkin')}
+                  disabled={markingStatus || todayRecord?.checkOut}
+                  className="flex flex-col items-center justify-center p-3 rounded-xl border border-[#E6E3DE] hover:border-[#7FAF3F] hover:bg-[#F7F5F1] transition-colors text-center disabled:opacity-50"
+                >
                   <div className="w-8 h-8 rounded-full bg-[#7FAF3F]/10 flex items-center justify-center text-[#7FAF3F] mb-2">
                     <LogIn className="w-4 h-4" />
                   </div>
-                  <span className="text-xs font-medium text-[#2D3032]">Check In</span>
+                  <span className="text-xs font-medium text-[#2D3032]">
+                    {todayRecord?.checkIn && !todayRecord?.checkOut ? 'Check Out' : todayRecord?.checkOut ? 'Logged Out' : 'Check In'}
+                  </span>
                 </button>
-                <button className="flex flex-col items-center justify-center p-3 rounded-xl border border-[#E6E3DE] hover:border-[#E56B65] hover:bg-[#F7F5F1] transition-colors text-center">
+                <Link href="/leave" className="flex flex-col items-center justify-center p-3 rounded-xl border border-[#E6E3DE] hover:border-[#E56B65] hover:bg-[#F7F5F1] transition-colors text-center">
                   <div className="w-8 h-8 rounded-full bg-[#E56B65]/10 flex items-center justify-center text-[#E56B65] mb-2">
                     <Palmtree className="w-4 h-4" />
                   </div>
                   <span className="text-xs font-medium text-[#2D3032]">Apply Leave</span>
-                </button>
-                <button className="flex flex-col items-center justify-center p-3 rounded-xl border border-[#E6E3DE] hover:border-[#7A70C7] hover:bg-[#F7F5F1] transition-colors text-center">
+                </Link>
+                <Link href="/payroll" className="flex flex-col items-center justify-center p-3 rounded-xl border border-[#E6E3DE] hover:border-[#7A70C7] hover:bg-[#F7F5F1] transition-colors text-center">
                   <div className="w-8 h-8 rounded-full bg-[#7A70C7]/10 flex items-center justify-center text-[#7A70C7] mb-2">
                     <FileText className="w-4 h-4" />
                   </div>
                   <span className="text-xs font-medium text-[#2D3032]">View Payslip</span>
-                </button>
-                <button className="flex flex-col items-center justify-center p-3 rounded-xl border border-[#E6E3DE] hover:border-[#3B82F6] hover:bg-[#F7F5F1] transition-colors text-center">
+                </Link>
+                <Link href="/attendance" className="flex flex-col items-center justify-center p-3 rounded-xl border border-[#E6E3DE] hover:border-[#3B82F6] hover:bg-[#F7F5F1] transition-colors text-center">
                   <div className="w-8 h-8 rounded-full bg-[#3B82F6]/10 flex items-center justify-center text-[#3B82F6] mb-2">
                     <CalendarCheck className="w-4 h-4" />
                   </div>
                   <span className="text-xs font-medium text-[#2D3032]">Attendance</span>
-                </button>
+                </Link>
               </div>
             </div>
 
