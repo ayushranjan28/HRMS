@@ -44,6 +44,15 @@ app.get('/api/dashboard', (req: Request, res: Response) => {
       { name: 'Wed', Present: 24, 'Half-day': 0, Absent: 0, Leave: 2 },
       { name: 'Thu', Present: 22, 'Half-day': 2, Absent: 1, Leave: 1 },
       { name: 'Fri', Present: 21, 'Half-day': 3, Absent: 0, Leave: 2 }
+    ],
+    upcoming: [
+      { type: 'video', title: 'Product sync meeting', time: '10:30 AM - 11:00 AM' },
+      { type: 'calendar', title: 'HR policy update briefing', time: '02:00 PM - 02:30 PM' }
+    ],
+    recentActivity: [
+      { type: 'checkin', text: 'Checked in at Koramangala Office', time: '09:12 AM' },
+      { type: 'leave', text: 'Casual Leave request approved', time: 'Yesterday' },
+      { type: 'payslip', text: 'July payslip is now available', time: '3 days ago' }
     ]
   });
 });
@@ -853,6 +862,14 @@ app.post('/api/messages', (req: Request, res: Response) => {
 
   store.messages.push(newMsg);
   res.json(newMsg);
+});
+
+app.put('/api/messages/:id/read', (req: Request, res: Response) => {
+  const item = store.messages.find(m => m.id === req.params.id);
+  if (item) {
+    item.isRead = true;
+  }
+  res.json({ success: true });
 });
 
 
