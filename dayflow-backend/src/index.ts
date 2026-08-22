@@ -796,35 +796,59 @@ app.post('/api/attendance/regularization/:id/reject', (req: Request, res: Respon
   res.json({ success: true, correction: store.attendanceCorrections[idx] });
 });
 
-// ================= LEAVES (ADMIN - from DB) =================
 app.get('/api/leaves', async (req: Request, res: Response) => {
-  const leaves = await prisma.leaveRequest.findMany({
-    include: { user: true },
-    orderBy: { appliedOn: 'desc' },
-  });
+  try {
+    const leaves = await prisma.leaveRequest.findMany({
+      include: { user: true },
+      orderBy: { appliedOn: 'desc' },
+    });
 
-  const leaveTypeMap: Record<string, string> = {
-    PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave',
-    UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave',
-  };
+    const leaveTypeMap: Record<string, string> = {
+      PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave',
+      UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave',
+    };
 
-  const result = leaves.map(l => ({
-    id: l.id,
-    employeeId: l.user.employeeId,
-    leaveType: leaveTypeMap[l.type] || l.type,
-    startDate: l.startDate.toISOString().split('T')[0],
-    endDate: l.endDate.toISOString().split('T')[0],
-    duration: Number(l.days),
-    reason: l.reason,
-    status: l.status === 'PENDING' ? 'Pending' : l.status === 'APPROVED' ? 'Approved' : 'Rejected',
-    appliedAt: l.appliedOn.toISOString().split('T')[0],
-    employeeName: l.user.fullName,
-    role: l.user.jobTitle || 'Unknown',
-    avatar: l.user.avatarUrl || 'https://i.pravatar.cc/150',
-    department: l.user.department || 'Unknown',
-  }));
+    const result = leaves.map(l => ({
+      id: l.id,
+      employeeId: l.user.employeeId,
+      leaveType: leaveTypeMap[l.type] || l.type,
+      startDate: l.startDate.toISOString().split('T')[0],
+      endDate: l.endDate.toISOString().split('T')[0],
+      duration: Number(l.days),
+      reason: l.reason,
+      status: l.status === 'PENDING' ? 'Pending' : l.status === 'APPROVED' ? 'Approved' : 'Rejected',
+      appliedAt: l.appliedOn.toISOString().split('T')[0],
+      employeeName: l.user.fullName,
+      role: l.user.jobTitle || 'Unknown',
+      avatar: l.user.avatarUrl || 'https://i.pravatar.cc/150',
+      department: l.user.department || 'Unknown',
+    }));
 
-  res.json(result);
+    res.json(result);
+  } catch {
+    // Store fallback
+    const result = store.leaveRequests.map(l => {
+      const emp = store.employees.find(e => e.id === l.employeeId || e.employeeId === l.employeeId);
+      const dept = emp ? store.departments.find(d => d.id === emp.departmentId) : null;
+      const desig = emp ? store.designations.find(d => d.id === emp.designationId) : null;
+      return {
+        id: l.id,
+        employeeId: l.employeeId,
+        leaveType: l.leaveType,
+        startDate: l.startDate,
+        endDate: l.endDate,
+        duration: l.duration,
+        reason: l.reason,
+        status: l.status,
+        appliedAt: l.appliedAt,
+        employeeName: emp ? `${emp.firstName} ${emp.lastName}` : l.employeeId,
+        role: desig?.name || 'Unknown',
+        avatar: emp?.profilePhoto || 'https://i.pravatar.cc/150',
+        department: dept?.name || 'Unknown',
+      };
+    });
+    res.json(result);
+  }
 });
 
 app.post('/api/leaves', async (req: Request, res: Response) => {
@@ -833,56 +857,81 @@ app.post('/api/leaves', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Missing leave details' });
   }
 
-  const user = await prisma.user.findFirst({ where: { employeeId } });
-  if (!user) return res.status(404).json({ error: 'Employee not found' });
+  try {
+    const user = await prisma.user.findFirst({ where: { employeeId } });
+    if (!user) return res.status(404).json({ error: 'Employee not found' });
 
-  const typeMap: Record<string, LeaveType> = {
-    'Paid Time Off': LeaveType.PAID_TIME_OFF,
-    'Sick Leave': LeaveType.SICK_LEAVE,
-    'Unpaid Leave': LeaveType.UNPAID_LEAVE,
-    'Casual Leave': LeaveType.COMP_OFF,
-  };
+    const typeMap: Record<string, LeaveType> = {
+      'Paid Time Off': LeaveType.PAID_TIME_OFF,
+      'Sick Leave': LeaveType.SICK_LEAVE,
+      'Unpaid Leave': LeaveType.UNPAID_LEAVE,
+      'Casual Leave': LeaveType.COMP_OFF,
+    };
 
-  const leave = await prisma.leaveRequest.create({
-    data: {
-      userId: user.id,
-      type: typeMap[leaveType] || LeaveType.PAID_TIME_OFF,
-      startDate: new Date(startDate),
-      endDate: new Date(endDate),
-      days: parseInt(duration),
-      reason,
-      status: LeaveStatus.PENDING,
-    },
-  });
-
-  // Notify admin
-  if (activeSessionUser) {
-    await prisma.notification.create({
+    const leave = await prisma.leaveRequest.create({
       data: {
-        userId: activeSessionUser.id,
-        type: 'LEAVE',
-        title: 'New Leave Request',
-        message: `${user.fullName} applied for ${leaveType} (${duration} days)`,
+        userId: user.id,
+        type: typeMap[leaveType] || LeaveType.PAID_TIME_OFF,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        days: parseInt(duration),
+        reason,
+        status: LeaveStatus.PENDING,
       },
     });
+
+    // Notify admin
+    if (activeSessionUser) {
+      await prisma.notification.create({
+        data: {
+          userId: activeSessionUser.id,
+          type: 'LEAVE',
+          title: 'New Leave Request',
+          message: `${user.fullName} applied for ${leaveType} (${duration} days)`,
+        },
+      });
+    }
+
+    const leaveTypeMapReverse: Record<string, string> = {
+      PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave',
+      UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave',
+    };
+
+    res.json({
+      id: leave.id,
+      employeeId,
+      leaveType: leaveTypeMapReverse[leave.type] || leave.type,
+      startDate,
+      endDate,
+      duration: parseInt(duration),
+      reason,
+      status: 'Pending',
+      appliedAt: leave.appliedOn.toISOString().split('T')[0],
+    });
+  } catch {
+    // Store fallback
+    const newLeave: store.LeaveRequest = {
+      id: `REQ-${Date.now()}`,
+      employeeId,
+      leaveType,
+      startDate,
+      endDate,
+      duration: parseInt(duration),
+      reason,
+      status: 'Pending',
+      appliedAt: new Date().toISOString().split('T')[0],
+    };
+    store.leaveRequests.push(newLeave);
+
+    // Deduct from leave balance fallback
+    const balance = store.leaveBalances.find(b => b.employeeId === employeeId && b.leaveType === leaveType);
+    if (balance) {
+      balance.used += parseInt(duration);
+      balance.remaining = Math.max(0, balance.allocated - balance.used);
+    }
+
+    res.json(newLeave);
   }
-
-  const leaveTypeMapReverse: Record<string, string> = {
-    PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave',
-    UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave',
-  };
-
-  res.json({
-    id: leave.id,
-    employeeId,
-    leaveType: leaveTypeMapReverse[leave.type] || leave.type,
-    startDate,
-    endDate,
-    duration: parseInt(duration),
-    reason,
-    status: 'Pending',
-    appliedAt: leave.appliedOn.toISOString().split('T')[0],
-  });
 });
 
 app.put('/api/leaves/:id/approve', requireAdmin, async (req: Request, res: Response) => {
