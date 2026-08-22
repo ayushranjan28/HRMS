@@ -1,12 +1,13 @@
 "use client";
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { 
   CalendarCheck, Clock, Briefcase, Palmtree, 
   LogIn, Calendar, FileText, CheckCircle, 
-  ChevronRight, Megaphone, Video
+  ChevronRight, Megaphone, Video, Plus, X
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { getDashboardData, getTodayAttendance, markAttendance } from '@/services/api';
+import { getDashboardData, getTodayAttendance, markAttendance, createCalendarEvent } from '@/services/api';
 
 const COLORS = {
   Present: '#7FAF3F',
@@ -20,6 +21,18 @@ export default function EmployeeDashboard() {
   const [todayRecord, setTodayRecord] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [markingStatus, setMarkingStatus] = useState(false);
+
+  // Calendar Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formData, setFormData] = useState({
+    title: '',
+    date: new Date().toISOString().split('T')[0],
+    startTime: '10:00',
+    endTime: '11:00',
+    type: 'MEETING',
+    description: ''
+  });
 
   useEffect(() => {
     async function loadData() {
@@ -64,6 +77,31 @@ export default function EmployeeDashboard() {
         setMarkingStatus(false);
       }
     );
+  };
+
+  const handleCreateEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setIsSubmitting(true);
+      await createCalendarEvent(formData);
+      setIsModalOpen(false);
+      setFormData({
+        title: '',
+        date: new Date().toISOString().split('T')[0],
+        startTime: '10:00',
+        endTime: '11:00',
+        type: 'MEETING',
+        description: ''
+      });
+      // Refresh dashboard data to show the new event
+      const result = await getDashboardData();
+      setData(result);
+    } catch (error) {
+      console.error('Failed to create event:', error);
+      alert('Failed to schedule meeting. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (loading) {
@@ -318,7 +356,11 @@ export default function EmployeeDashboard() {
             <div className="bg-white rounded-2xl p-6 border border-[#E6E3DE] shadow-sm flex flex-col">
               <div className="flex justify-between items-center mb-5">
                 <h2 className="text-[15px] font-semibold text-[#2D3032]">Upcoming</h2>
-                <button className="text-xs font-medium text-[#777A7C] hover:text-[#2D3032]">View all</button>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setIsModalOpen(true)} className="text-[#7A70C7] hover:text-[#685db5] bg-[#7A70C7]/10 p-1.5 rounded-lg transition-colors" title="Schedule Meeting">
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
               <div className="flex flex-col gap-4">
                 {(data.upcoming || [
@@ -338,9 +380,9 @@ export default function EmployeeDashboard() {
                   </div>
                 ))}
               </div>
-              <button className="mt-auto w-full bg-[#F7F5F1] hover:bg-[#E6E3DE] text-[#2D3032] text-xs font-semibold py-2.5 rounded-lg transition-colors flex items-center justify-center gap-1">
+              <Link href="/calendar" className="mt-auto w-full bg-[#F7F5F1] hover:bg-[#E6E3DE] text-[#2D3032] text-xs font-semibold py-2.5 rounded-lg transition-colors flex items-center justify-center gap-1">
                 View Calendar <ChevronRight className="w-3 h-3" />
-              </button>
+              </Link>
             </div>
           </div>
 
@@ -405,6 +447,116 @@ export default function EmployeeDashboard() {
           
         </div>
       </div>
+
+      {/* Schedule Event Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-6 border-b border-[#E6E3DE]">
+              <h2 className="text-xl font-bold text-[#2D3032]">Schedule Event</h2>
+              <button 
+                onClick={() => setIsModalOpen(false)}
+                className="text-[#9A9C9D] hover:text-[#2D3032] transition-colors p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleCreateEvent} className="p-6">
+              <div className="space-y-5">
+                <div>
+                  <label className="block text-[13px] font-semibold text-[#2D3032] mb-1.5">Event Title *</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={formData.title}
+                    onChange={e => setFormData({...formData, title: e.target.value})}
+                    placeholder="e.g., Team Weekly Sync"
+                    className="w-full px-4 py-2.5 rounded-xl border border-[#E6E3DE] focus:border-[#7A70C7] focus:ring-1 focus:ring-[#7A70C7] outline-none transition-all text-sm"
+                  />
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[13px] font-semibold text-[#2D3032] mb-1.5">Event Type *</label>
+                    <select 
+                      value={formData.type}
+                      onChange={e => setFormData({...formData, type: e.target.value})}
+                      className="w-full px-4 py-2.5 rounded-xl border border-[#E6E3DE] focus:border-[#7A70C7] focus:ring-1 focus:ring-[#7A70C7] outline-none transition-all text-sm bg-white"
+                    >
+                      <option value="MEETING">Meeting</option>
+                      <option value="VIDEO">Video Call</option>
+                      <option value="REMINDER">Reminder</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[13px] font-semibold text-[#2D3032] mb-1.5">Date *</label>
+                    <input 
+                      type="date" 
+                      required
+                      value={formData.date}
+                      onChange={e => setFormData({...formData, date: e.target.value})}
+                      className="w-full px-4 py-2.5 rounded-xl border border-[#E6E3DE] focus:border-[#7A70C7] focus:ring-1 focus:ring-[#7A70C7] outline-none transition-all text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[13px] font-semibold text-[#2D3032] mb-1.5">Start Time *</label>
+                    <input 
+                      type="time" 
+                      required
+                      value={formData.startTime}
+                      onChange={e => setFormData({...formData, startTime: e.target.value})}
+                      className="w-full px-4 py-2.5 rounded-xl border border-[#E6E3DE] focus:border-[#7A70C7] focus:ring-1 focus:ring-[#7A70C7] outline-none transition-all text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[13px] font-semibold text-[#2D3032] mb-1.5">End Time *</label>
+                    <input 
+                      type="time" 
+                      required
+                      value={formData.endTime}
+                      onChange={e => setFormData({...formData, endTime: e.target.value})}
+                      className="w-full px-4 py-2.5 rounded-xl border border-[#E6E3DE] focus:border-[#7A70C7] focus:ring-1 focus:ring-[#7A70C7] outline-none transition-all text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[13px] font-semibold text-[#2D3032] mb-1.5">Description</label>
+                  <textarea 
+                    value={formData.description}
+                    onChange={e => setFormData({...formData, description: e.target.value})}
+                    placeholder="Add event details, agenda, or video links..."
+                    rows={3}
+                    className="w-full px-4 py-2.5 rounded-xl border border-[#E6E3DE] focus:border-[#7A70C7] focus:ring-1 focus:ring-[#7A70C7] outline-none transition-all text-sm resize-none"
+                  ></textarea>
+                </div>
+              </div>
+
+              <div className="mt-8 flex items-center justify-end gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-5 py-2.5 rounded-xl font-medium text-[#777A7C] hover:bg-[#F7F5F1] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-6 py-2.5 rounded-xl font-medium bg-[#7A70C7] hover:bg-[#685db5] text-white transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {isSubmitting ? 'Scheduling...' : 'Schedule Event'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

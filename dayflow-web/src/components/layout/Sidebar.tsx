@@ -12,8 +12,9 @@ import * as api from '@/services/api';
 
 const employeeNav = [
   { name: 'My Dashboard', href: '/', icon: LayoutDashboard },
+  { name: 'My Calendar', href: '/calendar', icon: Calendar },
   { name: 'My Attendance', href: '/attendance', icon: CalendarCheck },
-  { name: 'Leave & Time-off', href: '/leave', icon: Calendar },
+  { name: 'Leave & Time-off', href: '/leave', icon: FileText },
   { name: 'Tour Expenses', href: '/tour-expenses', icon: Plane },
   { name: 'My Payslip', href: '/payroll', icon: FileText },
   { name: 'My Profile', href: '/profile', icon: User },

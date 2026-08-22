@@ -305,4 +305,15 @@ export const addReimbursementToPayroll = async (claimId: string, month: string, 
   return response.data;
 };
 
+// Calendar
+export const getCalendarEvents = async () => {
+  const response = await api.get('/calendar');
+  return response.data;
+};
+
+export const createCalendarEvent = async (data: any) => {
+  const response = await api.post('/calendar', data);
+  return response.data;
+};
+
 export default api;

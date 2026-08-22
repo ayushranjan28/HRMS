@@ -127,13 +127,33 @@ app.get('/api/dashboard', async (req: Request, res: Response) => {
     }
     const days = Object.keys(dateMap).sort().slice(-5);
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const upcomingEvents = await prisma.calendarEvent.findMany({
+      where: { startTime: { gte: new Date(new Date().setHours(0,0,0,0)) } },
+      orderBy: { startTime: 'asc' },
+      take: 3
+    });
+
+    const formatTime = (date: Date) => date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    
+    let formattedUpcoming = upcomingEvents.map(e => ({
+      id: e.id,
+      type: e.type === 'VIDEO' ? 'video' : 'calendar',
+      title: e.title,
+      time: `${formatTime(e.startTime)} - ${formatTime(e.endTime)}`
+    }));
+
+    if (formattedUpcoming.length === 0) {
+      formattedUpcoming = [{ type: 'video', title: 'Product sync meeting', time: '10:30 AM - 11:00 AM' }, { type: 'calendar', title: 'HR policy update briefing', time: '02:00 PM - 02:30 PM' }] as any;
+    }
+
     res.json({
       kpis: { hours: '38h 15m', leavesAvailable: 18, nextHoliday: 4 },
       attendanceOverview: days.map(d => ({ name: dayNames[new Date(d).getDay()], ...dateMap[d] })),
-      upcoming: [{ type: 'video', title: 'Product sync meeting', time: '10:30 AM - 11:00 AM' }, { type: 'calendar', title: 'HR policy update briefing', time: '02:00 PM - 02:30 PM' }],
+      upcoming: formattedUpcoming,
       recentActivity: [{ type: 'checkin', text: 'Checked in at Koramangala Office', time: '09:12 AM' }, { type: 'leave', text: 'Casual Leave request approved', time: 'Yesterday' }, { type: 'payslip', text: 'July payslip is now available', time: '3 days ago' }]
     });
-  } catch {
+  } catch (err) {
+    console.error('Dashboard DB Error:', err);
     // Fallback: store-based dashboard
     const storeAtts = store.attendance;
     const dateMap: Record<string, any> = {};
@@ -1544,6 +1564,74 @@ app.post('/api/admin/reimbursements/:id/payroll', requireAdmin, (req: Request, r
 
 
 
+
+// ================= CALENDAR =================
+app.get('/api/calendar', async (req: Request, res: Response) => {
+  try {
+    const events = await prisma.calendarEvent.findMany({
+      orderBy: { startTime: 'asc' },
+      include: { user: true }
+    });
+    res.json(events.map(e => ({
+      id: e.id,
+      title: e.title,
+      date: e.startTime.toISOString().split('T')[0],
+      startTime: e.startTime.toISOString(),
+      endTime: e.endTime?.toISOString() || e.startTime.toISOString(),
+      type: e.type,
+      description: e.description,
+      organizerName: e.user?.fullName || 'Unknown'
+    })));
+  } catch (error) {
+    console.error('Error fetching calendar events:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/calendar', async (req: Request, res: Response) => {
+  try {
+    const { title, date, startTime, endTime, type, description } = req.body;
+    
+    const startDateTime = new Date(`${date}T${startTime}:00`);
+    const endDateTime = new Date(`${date}T${endTime}:00`);
+
+    let userId = activeSessionUser?.id;
+    if (!userId) {
+      const admin = await prisma.user.findFirst({ where: { role: 'HR_ADMIN' } });
+      userId = admin?.id;
+    }
+
+    if (!userId) {
+       return res.status(400).json({ error: 'No user to act as organizer' });
+    }
+
+    const newEvent = await prisma.calendarEvent.create({
+      data: {
+        title,
+        startTime: startDateTime,
+        endTime: endDateTime,
+        type: type || 'MEETING',
+        description: description || '',
+        userId: userId
+      },
+      include: { user: true }
+    });
+
+    res.json({
+      id: newEvent.id,
+      title: newEvent.title,
+      date: newEvent.startTime.toISOString().split('T')[0],
+      startTime: newEvent.startTime.toISOString(),
+      endTime: newEvent.endTime?.toISOString() || newEvent.startTime.toISOString(),
+      type: newEvent.type,
+      description: newEvent.description,
+      organizerName: newEvent.user?.fullName || 'Unknown'
+    });
+  } catch (error) {
+    console.error('Error creating calendar event:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 app.listen(port, () => {
   console.log(`⚡️[server]: Server is running at http://localhost:${port} (PostgreSQL connected)`);
