@@ -71,18 +71,6 @@ export function Sidebar() {
             );
           })}
         </nav>
-
-        {/* Upgrade Card */}
-        <div className="mt-8 rounded-2xl bg-gradient-to-br from-[#53414D] to-[#362C34] p-5 relative overflow-hidden shadow-lg mx-1">
-          <div className="text-pink-300 mb-3">
-            <Crown className="w-6 h-6" />
-          </div>
-          <h4 className="text-white font-semibold mb-1.5">Upgrade to Pro</h4>
-          <p className="text-[11px] text-gray-300 mb-5 leading-relaxed">Unlock advanced analytics, custom reports and more.</p>
-          <button className="w-full bg-white/10 hover:bg-white/20 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-between px-4 border border-white/5">
-            Upgrade Now <span className="font-bold">→</span>
-          </button>
-        </div>
       </div>
       
       <div className="p-4 pb-8 space-y-1">

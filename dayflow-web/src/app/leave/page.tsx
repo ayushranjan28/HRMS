@@ -1,251 +1,155 @@
 "use client";
-import React, { useState, useEffect } from 'react';
-import { 
-  Briefcase, Clock, Calendar, CheckCircle, 
-  XCircle, Filter, Download
-} from 'lucide-react';
-import { getLeaveData } from '@/services/api';
+import React, { useState } from 'react';
+import { Plus, Upload, X } from 'lucide-react';
 
 export default function LeavePage() {
-  const [activeTab, setActiveTab] = useState<'my' | 'apply'>('apply');
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const result = await getLeaveData();
-        setData(result);
-      } catch (error) {
-        console.error("Failed to load leave data:", error);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadData();
-  }, []);
-
-  if (loading) {
-    return <div className="flex justify-center items-center h-64 text-[#777A7C]">Loading leave data...</div>;
-  }
-
-  if (!data) return null;
-
-  return (
-    <div className="flex flex-col gap-6 w-full max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-2">
-        <h1 className="text-[28px] font-semibold text-[#2D3032]">
-          Leave & Time-off {activeTab === 'my' ? '– My Leave Requests' : '– Apply Leave'}
-        </h1>
+  // Helper to generate calendar grids
+  const renderMonth = (month: string, days: number, startDay: number, highlightDays: number[] = []) => (
+    <div className="flex flex-col mb-4">
+      <h3 className="text-xs font-bold text-[#2D3032] mb-2">{month} 2024</h3>
+      <div className="grid grid-cols-7 gap-1 text-center text-[10px]">
+        <div className="font-semibold text-[#9A9C9D]">S</div>
+        <div className="font-semibold text-[#9A9C9D]">M</div>
+        <div className="font-semibold text-[#9A9C9D]">T</div>
+        <div className="font-semibold text-[#9A9C9D]">W</div>
+        <div className="font-semibold text-[#9A9C9D]">T</div>
+        <div className="font-semibold text-[#9A9C9D]">F</div>
+        <div className="font-semibold text-[#9A9C9D]">S</div>
+        {Array.from({ length: startDay }).map((_, i) => <div key={`empty-${i}`}></div>)}
+        {Array.from({ length: days }).map((_, i) => {
+          const isHighlighted = highlightDays.includes(i + 1);
+          return (
+            <div key={i} className={`py-1 rounded-full ${isHighlighted ? 'bg-[#E56B65] text-white font-bold' : 'text-[#777A7C] hover:bg-[#F7F5F1] cursor-pointer'}`}>
+              {i + 1}
+            </div>
+          );
+        })}
       </div>
-
-      {/* Tabs */}
-      <div className="flex gap-8 border-b border-[#E6E3DE]">
-        <button 
-          onClick={() => setActiveTab('my')}
-          className={`pb-3 text-sm font-semibold transition-colors relative ${activeTab === 'my' ? 'text-[#7FAF3F]' : 'text-[#777A7C] hover:text-[#2D3032]'}`}
-        >
-          My Leaves
-          {activeTab === 'my' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#7FAF3F] rounded-t-full"></div>}
-        </button>
-        <button 
-          onClick={() => setActiveTab('apply')}
-          className={`pb-3 text-sm font-semibold transition-colors relative ${activeTab === 'apply' ? 'text-[#7FAF3F]' : 'text-[#777A7C] hover:text-[#2D3032]'}`}
-        >
-          Apply Leave
-          {activeTab === 'apply' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#7FAF3F] rounded-t-full"></div>}
-        </button>
-      </div>
-
-      {activeTab === 'apply' ? <ApplyLeave balances={data.balances} /> : <MyLeaves history={data.history} />}
     </div>
   );
-}
 
-function ApplyLeave({ balances }: { balances: any }) {
   return (
-    <div className="grid grid-cols-12 gap-6">
-      {/* Left: Leave Balances */}
-      <div className="col-span-4 bg-white rounded-2xl p-6 border border-[#E6E3DE] shadow-sm flex flex-col h-fit">
-        <h2 className="text-[15px] font-semibold text-[#2D3032] mb-6">Leave Balance</h2>
+    <div className="flex flex-col gap-6 w-full max-w-7xl mx-auto relative">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2">
+        <h1 className="text-[28px] font-semibold text-[#2D3032]">Leave & Time-off</h1>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[#E6E3DE] shadow-sm flex flex-col overflow-hidden">
         
-        <div className="space-y-6">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-full bg-[#7FAF3F]/10 flex items-center justify-center text-[#7FAF3F] shrink-0">
-              <Briefcase className="w-4 h-4" />
-            </div>
-            <div className="flex-1">
-              <div className="flex justify-between text-sm mb-2">
-                <span className="font-medium text-[#2D3032]">Paid Leave</span>
-                <span className="text-[#2D3032] font-semibold">{balances.paid.used} <span className="text-[#9A9C9D] font-normal">/ {balances.paid.total} days</span></span>
-              </div>
-              <div className="h-1.5 bg-[#F7F5F1] rounded-full overflow-hidden">
-                <div className="h-full bg-[#7FAF3F] rounded-full" style={{ width: balances.paid.percentage }}></div>
-              </div>
-            </div>
-          </div>
+        {/* Top Control Bar matching Wireframe */}
+        <div className="bg-[#F7F5F1] px-6 py-4 border-b border-[#E6E3DE]">
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 bg-[#A855F7] text-white rounded-lg px-6 py-2.5 text-sm font-bold hover:bg-[#9333EA] transition-colors shadow-sm"
+          >
+            <Plus className="w-4 h-4" /> NEW
+          </button>
+        </div>
 
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-full bg-[#E5A83B]/10 flex items-center justify-center text-[#E5A83B] shrink-0">
-              <Clock className="w-4 h-4" />
-            </div>
-            <div className="flex-1">
-              <div className="flex justify-between text-sm mb-2">
-                <span className="font-medium text-[#2D3032]">Sick Leave</span>
-                <span className="text-[#2D3032] font-semibold">{balances.sick.used} <span className="text-[#9A9C9D] font-normal">/ {balances.sick.total} days</span></span>
-              </div>
-              <div className="h-1.5 bg-[#F7F5F1] rounded-full overflow-hidden">
-                <div className="h-full bg-[#E5A83B] rounded-full" style={{ width: balances.sick.percentage }}></div>
-              </div>
-            </div>
+        <div className="grid grid-cols-2 divide-x divide-[#E6E3DE] border-b border-[#E6E3DE]">
+          <div className="p-6 flex flex-col items-center justify-center bg-white">
+            <span className="text-sm font-semibold text-[#3B82F6] uppercase tracking-wider mb-2">Paid time Off</span>
+            <span className="text-2xl font-bold text-[#2D3032]">24 Days Available</span>
           </div>
-
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-full bg-[#7A70C7]/10 flex items-center justify-center text-[#7A70C7] shrink-0">
-              <Calendar className="w-4 h-4" />
-            </div>
-            <div className="flex-1">
-              <div className="flex justify-between text-sm mb-2">
-                <span className="font-medium text-[#2D3032]">Unpaid Leave</span>
-                <span className="text-[#2D3032] font-semibold">{balances.unpaid.used} <span className="text-[#9A9C9D] font-normal">/ {balances.unpaid.total} days</span></span>
-              </div>
-              <div className="h-1.5 bg-[#F7F5F1] rounded-full overflow-hidden">
-                <div className="h-full bg-[#7A70C7] rounded-full" style={{ width: balances.unpaid.percentage }}></div>
-              </div>
-            </div>
+          <div className="p-6 flex flex-col items-center justify-center bg-white">
+            <span className="text-sm font-semibold text-[#3B82F6] uppercase tracking-wider mb-2">Sick time off</span>
+            <span className="text-2xl font-bold text-[#2D3032]">07 Days Available</span>
           </div>
+        </div>
 
-           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-full bg-[#67AFA5]/10 flex items-center justify-center text-[#67AFA5] shrink-0">
-              <CheckCircle className="w-4 h-4" />
+        {/* Yearly Calendar View */}
+        <div className="p-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+            {renderMonth('January', 31, 1)}
+            {renderMonth('February', 29, 4)}
+            {renderMonth('March', 31, 5)}
+            {renderMonth('April', 30, 1)}
+            {renderMonth('May', 31, 3, [13, 14])}
+            {renderMonth('June', 30, 6)}
+            {renderMonth('July', 31, 1, [2, 3])}
+            {renderMonth('August', 31, 4)}
+            {renderMonth('September', 30, 0)}
+            {renderMonth('October', 31, 2)}
+            {renderMonth('November', 30, 5)}
+            {renderMonth('December', 31, 0)}
+          </div>
+        </div>
+      </div>
+
+      {/* Time off Request Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-[#1A1A1A] rounded-2xl w-full max-w-lg shadow-2xl relative animate-in fade-in zoom-in duration-200 overflow-hidden border border-white/10">
+            <div className="flex items-center justify-between p-5 border-b border-white/10">
+              <h2 className="text-lg font-medium text-white">Time off Type Request</h2>
+              <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-white transition-colors">
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <div className="flex-1">
-              <div className="flex justify-between text-sm mb-2">
-                <span className="font-medium text-[#2D3032]">Comp Off</span>
-                <span className="text-[#2D3032] font-semibold">{balances.compOff.used} <span className="text-[#9A9C9D] font-normal">/ {balances.compOff.total} days</span></span>
+            
+            <div className="p-8 flex flex-col gap-6">
+              <div className="flex items-center gap-6">
+                <label className="w-32 text-sm font-medium text-gray-300">Employee</label>
+                <div className="text-[#3B82F6] font-semibold text-sm">[Employee]</div>
               </div>
-              <div className="h-1.5 bg-[#F7F5F1] rounded-full overflow-hidden">
-                <div className="h-full bg-[#67AFA5] rounded-full" style={{ width: balances.compOff.percentage }}></div>
+              
+              <div className="flex items-center gap-6">
+                <label className="w-32 text-sm font-medium text-gray-300">Time off Type</label>
+                <select className="flex-1 bg-transparent text-[#3B82F6] font-semibold text-sm outline-none border-b border-gray-700 pb-1 cursor-pointer">
+                  <option className="bg-[#1A1A1A] text-white">Paid Time off</option>
+                  <option className="bg-[#1A1A1A] text-white">Sick Leave</option>
+                  <option className="bg-[#1A1A1A] text-white">Unpaid Leaves</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-6">
+                <label className="w-32 text-sm font-medium text-gray-300">Validity Period</label>
+                <div className="flex items-center gap-4 text-[#3B82F6] font-semibold text-sm">
+                  <span className="border-b border-gray-700 pb-1 cursor-pointer">May 13</span>
+                  <span className="text-gray-400">To</span>
+                  <span className="border-b border-gray-700 pb-1 cursor-pointer">May 14</span>
+                </div>
+              </div>
+
+               <div className="flex items-center gap-6">
+                <label className="w-32 text-sm font-medium text-gray-300">Allocation</label>
+                <div className="flex items-center gap-2 text-white font-semibold text-sm">
+                  <span>01.00</span>
+                  <span className="text-[#3B82F6]">Days</span>
+                </div>
+              </div>
+
+               <div className="flex items-center gap-6 mt-2">
+                <label className="w-32 text-sm font-medium text-gray-300">Attachment:</label>
+                <button className="flex items-center gap-3 text-gray-300 text-sm hover:text-white transition-colors">
+                  <div className="w-8 h-8 rounded-lg bg-[#3B82F6] flex items-center justify-center text-white shadow-md">
+                    <Upload className="w-4 h-4" />
+                  </div>
+                  (For sick leave certificate)
+                </button>
+              </div>
+
+              <div className="flex gap-4 mt-8">
+                <button 
+                  onClick={() => setIsModalOpen(false)}
+                  className="bg-[#A855F7] text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-[#9333EA] transition-colors"
+                >
+                  Submit
+                </button>
+                <button 
+                  onClick={() => setIsModalOpen(false)}
+                  className="bg-gray-800 text-gray-300 px-6 py-2 rounded-lg text-sm font-bold hover:bg-gray-700 transition-colors"
+                >
+                  Discard
+                </button>
               </div>
             </div>
           </div>
         </div>
-        <button className="mt-8 w-full text-xs font-semibold text-[#2D3032] bg-[#F7F5F1] py-2.5 rounded-lg hover:bg-[#E6E3DE] transition-colors">
-          View all balances →
-        </button>
-      </div>
-
-      {/* Right: Application Form */}
-      <div className="col-span-8 bg-white rounded-2xl p-8 border border-[#E6E3DE] shadow-sm">
-        <h2 className="text-[15px] font-semibold text-[#2D3032] mb-6">Apply for Leave</h2>
-        
-        <form className="space-y-6 max-w-lg">
-          <div>
-            <label className="block text-xs font-medium text-[#777A7C] mb-1.5">Leave Type *</label>
-            <select className="w-full bg-[#F7F5F1] border border-transparent focus:border-[#7FAF3F] rounded-lg px-4 py-3 text-sm font-medium text-[#2D3032] outline-none transition-colors">
-              <option>Paid Leave</option>
-              <option>Sick Leave</option>
-              <option>Unpaid Leave</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-[#777A7C] mb-1.5">Date Range *</label>
-            <div className="flex items-center gap-3">
-              <div className="flex-1 relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9A9C9D]" />
-                <input type="text" value="25 Apr 2024" readOnly className="w-full bg-[#F7F5F1] border border-transparent rounded-lg pl-9 pr-4 py-3 text-sm font-medium text-[#2D3032] outline-none" />
-              </div>
-              <span className="text-[#9A9C9D]">→</span>
-              <div className="flex-1 relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9A9C9D]" />
-                <input type="text" value="27 Apr 2024" readOnly className="w-full bg-[#F7F5F1] border border-transparent rounded-lg pl-9 pr-4 py-3 text-sm font-medium text-[#2D3032] outline-none" />
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-[#777A7C] mb-1.5">Number of Days</label>
-            <input type="text" value="3 days" readOnly className="w-full bg-white border border-[#E6E3DE] rounded-lg px-4 py-3 text-sm font-semibold text-[#2D3032] outline-none" />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-[#777A7C] mb-1.5">Reason / Remarks *</label>
-            <textarea rows={4} placeholder="Family function..." className="w-full bg-[#F7F5F1] border border-transparent focus:border-[#7FAF3F] rounded-lg px-4 py-3 text-sm text-[#2D3032] outline-none transition-colors resize-none"></textarea>
-            <div className="text-right text-[10px] text-[#9A9C9D] mt-1">0/200</div>
-          </div>
-
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#E6E3DE]">
-            <button type="button" className="px-5 py-2.5 text-sm font-semibold text-[#777A7C] hover:bg-[#F7F5F1] rounded-lg transition-colors">
-              Cancel
-            </button>
-            <button type="button" className="px-5 py-2.5 bg-[#7FAF3F] hover:bg-[#668F2F] text-white text-sm font-semibold rounded-lg transition-colors shadow-sm">
-              Submit Request
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function MyLeaves({ history }: { history: any }) {
-  const iconMap: any = { Briefcase, Clock, Calendar, CheckCircle };
-  
-  return (
-    <div className="bg-white rounded-2xl p-6 border border-[#E6E3DE] shadow-sm">
-       <div className="flex justify-end mb-5">
-        <button className="flex items-center gap-2 bg-white border border-[#E6E3DE] rounded-lg px-4 py-2 text-xs font-medium text-[#2D3032] hover:bg-[#F7F5F1] transition-colors">
-          <Filter className="w-4 h-4" /> Filter
-        </button>
-      </div>
-      <table className="w-full text-left text-sm">
-        <thead>
-          <tr className="text-[#9A9C9D] text-xs border-b border-[#E6E3DE]">
-            <th className="pb-3 font-medium">Type</th>
-            <th className="pb-3 font-medium">Date Range</th>
-            <th className="pb-3 font-medium text-center">Days</th>
-            <th className="pb-3 font-medium text-center">Status</th>
-            <th className="pb-3 font-medium">Applied On</th>
-            <th className="pb-3 font-medium text-right">Action</th>
-          </tr>
-        </thead>
-        <tbody className="text-[#2D3032]">
-          {history.map((row: any, i: number) => {
-            const Icon = iconMap[row.icon] || Calendar;
-            return (
-              <tr key={i} className="border-b border-[#E6E3DE] last:border-0 hover:bg-[#F7F5F1]/50">
-                <td className="py-4">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center`} style={{ backgroundColor: row.bg, color: row.color }}>
-                      <Icon className="w-4 h-4" />
-                    </div>
-                    <span className="font-semibold">{row.type}</span>
-                  </div>
-                </td>
-                <td className="py-4 text-[#777A7C] font-medium">{row.dates}</td>
-                <td className="py-4 text-center font-bold text-[#2D3032]">{row.days}</td>
-                <td className="py-4 text-center">
-                  {row.status === 'Approved' ? (
-                    <span className="bg-[#7FAF3F]/10 text-[#7FAF3F] px-2.5 py-1 rounded-md text-[11px] font-bold">Approved</span>
-                  ) : row.status === 'Pending' ? (
-                    <span className="bg-[#E5A83B]/10 text-[#E5A83B] px-2.5 py-1 rounded-md text-[11px] font-bold">Pending</span>
-                  ) : (
-                    <span className="bg-[#E56B65]/10 text-[#E56B65] px-2.5 py-1 rounded-md text-[11px] font-bold">Rejected</span>
-                  )}
-                </td>
-                <td className="py-4 text-[#777A7C] text-xs font-medium">{row.applied}</td>
-                <td className="py-4 text-right">
-                  <button className="p-1.5 rounded hover:bg-[#E6E3DE] text-[#9A9C9D] transition-colors">
-                    <Filter className="w-4 h-4 opacity-50" />
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      )}
     </div>
   );
 }
