@@ -371,7 +371,7 @@ export let employees: Employee[] = [
 export let users: User[] = [
   {
     id: 'U1',
-    username: 'alex',
+    username: 'OIALMA20220001',
     email: 'alex@dayflow.com',
     passwordHash: hashSync('password', 10),
     role: 'HR',
@@ -380,7 +380,7 @@ export let users: User[] = [
   },
   {
     id: 'U2',
-    username: 'jane',
+    username: 'OIJACO20200001',
     email: 'jane@dayflow.com',
     passwordHash: hashSync('password', 10),
     role: 'Employee',
@@ -389,7 +389,7 @@ export let users: User[] = [
   },
   {
     id: 'U3',
-    username: 'cody',
+    username: 'OICOFI20210001',
     email: 'cody@dayflow.com',
     passwordHash: hashSync('password', 10),
     role: 'HR',
@@ -567,11 +567,19 @@ export function addEmployee(emp: Omit<Employee, 'id' | 'createdAt'>): Employee {
   };
   employees.push(newEmp);
   
-  // Also create user log
-  const username = emp.firstName.toLowerCase();
+  // Also create user log with system generated Login ID following Odoo India rule format
+  const empYear = emp.joiningDate ? new Date(emp.joiningDate).getFullYear() : new Date().getFullYear();
+  const empsSameYear = employees.filter(e => e.joiningDate && new Date(e.joiningDate).getFullYear() === empYear);
+  const serial = empsSameYear.length;
+  
+  const first2 = (emp.firstName || '').substring(0, 2).toUpperCase();
+  const last2 = (emp.lastName || '').substring(0, 2).toUpperCase();
+  const serialStr = String(serial).padStart(4, '0');
+  const loginId = `OI${first2}${last2}${empYear}${serialStr}`;
+
   const newUser: User = {
     id: `U${users.length + 1}`,
-    username,
+    username: loginId,
     email: emp.email,
     passwordHash: hashSync('password', 10),
     role: (emp as any).role || 'Employee',

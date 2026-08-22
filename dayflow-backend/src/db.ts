@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import * as store from './store';
 
 // Define DB paths
 const DATA_DIR = path.join(__dirname, '..', 'data');
@@ -80,14 +81,21 @@ export interface NotificationItem {
   read: boolean;
 }
 
-// Default mock employees
-const DEFAULT_EMPLOYEES: Employee[] = [
-  { id: 'EMP001', name: 'Alex Martin', role: 'UI/UX Designer', department: 'Design', email: 'alex@dayflow.com', avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026024d' },
-  { id: 'EMP002', name: 'Jane Cooper', role: 'Engineering Lead', department: 'Engineering', email: 'jane@dayflow.com', avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026024f' },
-  { id: 'EMP003', name: 'Robert Fox', role: 'Marketing specialist', department: 'Marketing', email: 'robert@dayflow.com', avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026024a' },
-  { id: 'EMP004', name: 'Cody Fisher', role: 'HR Manager', department: 'HR', email: 'cody@dayflow.com', avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026024b' },
-  { id: 'EMP005', name: 'Esther Howard', role: 'Product Manager', department: 'Product', email: 'esther@dayflow.com', avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026024c' },
-];
+// Resolve live store employees dynamically
+export const getDBEmployees = (): Employee[] => {
+  return store.employees.map(emp => {
+    const dept = store.departments.find(d => d.id === emp.departmentId);
+    const desig = store.designations.find(d => d.id === emp.designationId);
+    return {
+      id: emp.id,
+      name: `${emp.firstName} ${emp.lastName}`,
+      role: desig ? desig.name : 'Employee',
+      department: dept ? dept.name : 'Engineering',
+      email: emp.email,
+      avatar: emp.profilePhoto || 'https://i.pravatar.cc/150?u=' + emp.id
+    };
+  });
+};
 
 // Helper to write to JSON db
 const saveDatabase = (data: any) => {
@@ -96,9 +104,10 @@ const saveDatabase = (data: any) => {
 
 // Helper to read from JSON db
 export const loadDatabase = () => {
+  const currentEmployees = getDBEmployees();
   if (!fs.existsSync(DB_FILE)) {
     const initialDb = {
-      employees: DEFAULT_EMPLOYEES,
+      employees: currentEmployees,
       claims: [],
       categories: [],
       bills: [],
@@ -112,7 +121,7 @@ export const loadDatabase = () => {
     const data = JSON.parse(raw);
     
     // Ensure all keys exist
-    if (!data.employees) data.employees = DEFAULT_EMPLOYEES;
+    data.employees = currentEmployees;
     if (!data.claims) data.claims = [];
     if (!data.categories) data.categories = [];
     if (!data.bills) data.bills = [];
@@ -122,7 +131,7 @@ export const loadDatabase = () => {
   } catch (error) {
     console.error("DB Load error, recreating initial database:", error);
     const initialDb = {
-      employees: DEFAULT_EMPLOYEES,
+      employees: currentEmployees,
       claims: [],
       categories: [],
       bills: [],
