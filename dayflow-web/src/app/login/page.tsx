@@ -62,15 +62,29 @@ export default function AuthPage() {
       return;
     }
 
-    // Mock Login trigger: check standard emails
-    const validEmails = ['alex@dayflow.com', 'jordan@dayflow.com', 'taylor@dayflow.com'];
-    if (validEmails.includes(email.toLowerCase())) {
+    // Mock Login trigger based on the ID Rule: OI(First2)(Last2)(Year)(Serial)
+    const validLogins = ['OICOFI20200001', 'OIALMA20230002']; // Admin, Employee
+    if (validLogins.includes(email.toUpperCase())) {
       setSuccess('Logged in successfully! Redirecting...');
+      
+      // Simulate setting role in localStorage based on login
+      if (typeof window !== 'undefined') {
+        if (email.toUpperCase() === 'OICOFI20200001') {
+           localStorage.setItem('dayflow_role', 'Admin');
+        } else {
+           localStorage.setItem('dayflow_role', 'Employee');
+        }
+      }
+
       setTimeout(() => {
-        router.push('/'); // Redirects to homepage
+        if (email.toUpperCase() === 'OICOFI20200001') {
+          router.push('/admin'); // Redirect HR to Admin Dashboard
+        } else {
+          router.push('/'); // Redirect Employee to Employee Dashboard
+        }
       }, 1000);
     } else {
-      setError('Invalid credentials. Hint: use alex@dayflow.com or jordan@dayflow.com');
+      setError('Invalid credentials. Hint: use OICOFI20200001 (Admin) or OIALMA20230002 (Employee)');
     }
   };
 
@@ -350,19 +364,19 @@ export default function AuthPage() {
           /* ================= SIGN IN ================= */
           <form onSubmit={handleSignIn} className="space-y-5">
             
-            {/* Email */}
+            {/* Login ID */}
             <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-[#5E5652]">Email Address</label>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-[#5E5652]">Login ID</label>
               <div className="relative">
                 <input
-                  type="email"
-                  placeholder="alex@dayflow.com"
+                  type="text"
+                  placeholder="e.g. OIJODO20220001"
                   className="w-full bg-white border border-[#E6E3DE] rounded-[14px] p-3 pl-10 text-xs focus:outline-none focus:ring-2 focus:ring-[#B5F12C] focus:border-[#B5F12C]"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => setEmail(e.target.value.toUpperCase())}
                   required
                 />
-                <Mail size={14} className="absolute left-3.5 top-3.5 text-[#8E847F]" />
+                <User size={14} className="absolute left-3.5 top-3.5 text-[#8E847F]" />
               </div>
             </div>
 
