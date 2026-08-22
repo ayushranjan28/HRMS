@@ -84,71 +84,107 @@ app.get('/api/health', (req: Request, res: Response) => {
 });
 
 app.get('/api/dashboard', async (req: Request, res: Response) => {
-  const totalEmployees = await prisma.user.count();
-  const attendanceRecords = await prisma.attendance.findMany({
-    orderBy: { date: 'desc' },
-    take: 200,
-  });
-
-  // Group by date for last 5 days
-  const dateMap: Record<string, { Present: number; 'Half-day': number; Absent: number; Leave: number }> = {};
-  for (const a of attendanceRecords) {
-    const d = a.date.toISOString().split('T')[0];
-    if (!dateMap[d]) dateMap[d] = { Present: 0, 'Half-day': 0, Absent: 0, Leave: 0 };
-    if (a.status === 'PRESENT') dateMap[d].Present++;
-    else if (a.status === 'HALF_DAY') dateMap[d]['Half-day']++;
-    else if (a.status === 'ABSENT') dateMap[d].Absent++;
-    else if (a.status === 'LEAVE') dateMap[d].Leave++;
+  try {
+    const totalEmployees = await prisma.user.count();
+    const attendanceRecords = await prisma.attendance.findMany({ orderBy: { date: 'desc' }, take: 200 });
+    const dateMap: Record<string, any> = {};
+    for (const a of attendanceRecords) {
+      const d = a.date.toISOString().split('T')[0];
+      if (!dateMap[d]) dateMap[d] = { Present: 0, 'Half-day': 0, Absent: 0, Leave: 0 };
+      if (a.status === 'PRESENT') dateMap[d].Present++;
+      else if (a.status === 'HALF_DAY') dateMap[d]['Half-day']++;
+      else if (a.status === 'ABSENT') dateMap[d].Absent++;
+      else if (a.status === 'LEAVE') dateMap[d].Leave++;
+    }
+    const days = Object.keys(dateMap).sort().slice(-5);
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    res.json({
+      kpis: { hours: '38h 15m', leavesAvailable: 18, nextHoliday: 4 },
+      attendanceOverview: days.map(d => ({ name: dayNames[new Date(d).getDay()], ...dateMap[d] })),
+      upcoming: [{ type: 'video', title: 'Product sync meeting', time: '10:30 AM - 11:00 AM' }, { type: 'calendar', title: 'HR policy update briefing', time: '02:00 PM - 02:30 PM' }],
+      recentActivity: [{ type: 'checkin', text: 'Checked in at Koramangala Office', time: '09:12 AM' }, { type: 'leave', text: 'Casual Leave request approved', time: 'Yesterday' }, { type: 'payslip', text: 'July payslip is now available', time: '3 days ago' }]
+    });
+  } catch {
+    // Fallback: store-based dashboard
+    const storeAtts = store.attendance;
+    const dateMap: Record<string, any> = {};
+    for (const a of storeAtts) {
+      if (!dateMap[a.date]) dateMap[a.date] = { Present: 0, 'Half-day': 0, Absent: 0, Leave: 0 };
+      if (a.status === 'Present') dateMap[a.date].Present++;
+      else if (a.status === 'Half Day') dateMap[a.date]['Half-day']++;
+      else if (a.status === 'Absent') dateMap[a.date].Absent++;
+      else if (a.status === 'On Leave') dateMap[a.date].Leave++;
+    }
+    const days = Object.keys(dateMap).sort().slice(-5);
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    res.json({
+      kpis: { hours: '38h 15m', leavesAvailable: 18, nextHoliday: 4 },
+      attendanceOverview: days.map(d => ({ name: dayNames[new Date(d).getDay()], ...dateMap[d] })),
+      upcoming: [{ type: 'video', title: 'Product sync meeting', time: '10:30 AM - 11:00 AM' }],
+      recentActivity: [{ type: 'checkin', text: 'Checked in at Office', time: '09:12 AM' }]
+    });
   }
-
-  const days = Object.keys(dateMap).sort().slice(-5);
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-  res.json({
-    kpis: {
-      hours: '38h 15m',
-      leavesAvailable: 18,
-      nextHoliday: 4,
-    },
-    attendanceOverview: days.map(d => ({
-      name: dayNames[new Date(d).getDay()],
-      ...dateMap[d],
-    })),
-    upcoming: [
-      { type: 'video', title: 'Product sync meeting', time: '10:30 AM - 11:00 AM' },
-      { type: 'calendar', title: 'HR policy update briefing', time: '02:00 PM - 02:30 PM' }
-    ],
-    recentActivity: [
-      { type: 'checkin', text: 'Checked in at Koramangala Office', time: '09:12 AM' },
-      { type: 'leave', text: 'Casual Leave request approved', time: 'Yesterday' },
-      { type: 'payslip', text: 'July payslip is now available', time: '3 days ago' }
-    ]
-  });
 });
 
 // ================= AUTHENTICATION =================
 app.post('/api/auth/login', async (req: Request, res: Response) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required' });
+  const { email, password, username } = req.body;
+  if ((!email && !username) || !password) {
+    return res.status(400).json({ error: 'Credentials are required' });
   }
 
-  const user = await prisma.user.findFirst({
-    where: { 
-      OR: [
-        { email: email.toLowerCase() }
-      ]
-    },
-    include: { privateInfo: true, salaryStructure: true },
-  });
-
-  if (!user || !compareSync(password, user.passwordHash)) {
-    return res.status(401).json({ error: 'Invalid credentials' });
+  try {
+    const user = await prisma.user.findFirst({
+      where: { OR: [{ email: (email || '').toLowerCase() }] },
+      include: { privateInfo: true, salaryStructure: true },
+    });
+    if (!user || !compareSync(password, user.passwordHash)) {
+      throw new Error('invalid');
+    }
+    activeSessionUser = user;
+    res.json({ user: userToAuthUser(user), employee: userToEmployee(user) });
+  } catch {
+    // Fallback: store-based auth (supports username OR email login)
+    const loginId = (username || email || '').toLowerCase();
+    const storeUser = store.users.find(u =>
+      u.email.toLowerCase() === loginId ||
+      u.username.toLowerCase() === loginId
+    );
+    if (!storeUser || !compareSync(password, storeUser.passwordHash)) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    const storeEmp = store.employees.find(e => e.id === storeUser.employeeId);
+    const dept = store.departments.find(d => d.id === storeEmp?.departmentId);
+    const desig = store.designations.find(d => d.id === storeEmp?.designationId);
+    const sessionUser = {
+      id: storeUser.id,
+      role: storeUser.role === 'HR' ? 'HR_ADMIN' : 'EMPLOYEE',
+      employeeId: storeUser.employeeId,
+      email: storeUser.email,
+      fullName: storeEmp ? `${storeEmp.firstName} ${storeEmp.lastName}` : storeUser.username,
+    };
+    activeSessionUser = sessionUser;
+    const empOut = storeEmp ? {
+      id: storeEmp.id, employeeId: storeEmp.employeeId,
+      firstName: storeEmp.firstName, lastName: storeEmp.lastName,
+      email: storeEmp.email, phone: storeEmp.phone || '',
+      dateOfBirth: storeEmp.dateOfBirth || '', gender: storeEmp.gender || '',
+      address: storeEmp.address || '', city: storeEmp.city || '',
+      state: storeEmp.state || '', country: storeEmp.country || '',
+      departmentId: dept?.name || storeEmp.departmentId,
+      designationId: desig?.name || storeEmp.designationId,
+      managerId: storeEmp.managerId || '',
+      joiningDate: storeEmp.joiningDate || '', employmentType: storeEmp.employmentType || 'Full Time',
+      workLocation: storeEmp.workLocation || 'Office', status: storeEmp.status || 'Active',
+      profilePhoto: storeEmp.profilePhoto || '', baseSalary: storeEmp.baseSalary || 0,
+      hra: storeEmp.hra || 0, allowances: storeEmp.allowances || 0,
+      role: storeUser.role, createdAt: storeUser.createdAt,
+    } : {};
+    res.json({
+      user: { id: storeUser.id, username: storeUser.username, email: storeUser.email, role: storeUser.role, employeeId: storeUser.employeeId, createdAt: storeUser.createdAt },
+      employee: empOut,
+    });
   }
-
-  activeSessionUser = user;
-  const employee = userToEmployee(user);
-  res.json({ user: userToAuthUser(user), employee });
 });
 
 app.post('/api/auth/logout', (req: Request, res: Response) => {
@@ -157,16 +193,23 @@ app.post('/api/auth/logout', (req: Request, res: Response) => {
 });
 
 app.get('/api/auth/me', async (req: Request, res: Response) => {
-  if (!activeSessionUser) {
-    return res.status(401).json({ error: 'Not authenticated' });
+  if (!activeSessionUser) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: activeSessionUser.id },
+      include: { privateInfo: true, salaryStructure: true },
+    });
+    if (!user) throw new Error('not found');
+    res.json({ user: userToAuthUser(user), employee: userToEmployee(user) });
+  } catch {
+    // Fallback: return from active session + store
+    const storeUser = store.users.find(u => u.id === activeSessionUser.id || u.email === activeSessionUser.email);
+    const storeEmp = storeUser ? store.employees.find(e => e.id === storeUser.employeeId) : null;
+    res.json({
+      user: { id: activeSessionUser.id, username: storeUser?.username || '', email: activeSessionUser.email, role: activeSessionUser.role === 'HR_ADMIN' ? 'HR' : 'Employee', employeeId: activeSessionUser.employeeId, createdAt: '' },
+      employee: storeEmp ? { id: storeEmp.id, employeeId: storeEmp.employeeId, firstName: storeEmp.firstName, lastName: storeEmp.lastName, email: storeEmp.email, departmentId: storeEmp.departmentId, designationId: storeEmp.designationId, profilePhoto: storeEmp.profilePhoto, baseSalary: storeEmp.baseSalary, role: storeUser?.role || 'Employee' } : {},
+    });
   }
-  const user = await prisma.user.findUnique({
-    where: { id: activeSessionUser.id },
-    include: { privateInfo: true, salaryStructure: true },
-  });
-  if (!user) return res.status(401).json({ error: 'Not authenticated' });
-
-  res.json({ user: userToAuthUser(user), employee: userToEmployee(user) });
 });
 
 app.post('/api/auth/switch-role', async (req: Request, res: Response) => {
@@ -191,29 +234,21 @@ app.post('/api/auth/switch-role', async (req: Request, res: Response) => {
 // ================= EMPLOYEES (ADMIN - from DB) =================
 app.get('/api/employees', async (req: Request, res: Response) => {
   const { search, departmentId, status } = req.query;
-
-  const users = await prisma.user.findMany({
-    include: { privateInfo: true, salaryStructure: true },
-    orderBy: { createdAt: 'asc' },
-  });
-
-  let list = users.map(userToEmployee);
-
-  if (search) {
-    const q = (search as string).toLowerCase();
-    list = list.filter(e =>
-      e.firstName.toLowerCase().includes(q) ||
-      e.lastName.toLowerCase().includes(q) ||
-      e.employeeId.toLowerCase().includes(q) ||
-      e.email.toLowerCase().includes(q)
-    );
+  try {
+    const users = await prisma.user.findMany({
+      include: { privateInfo: true, salaryStructure: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    let list = users.map(userToEmployee);
+    if (search) { const q = (search as string).toLowerCase(); list = list.filter(e => e.firstName.toLowerCase().includes(q) || e.lastName.toLowerCase().includes(q) || e.employeeId.toLowerCase().includes(q) || e.email.toLowerCase().includes(q)); }
+    if (departmentId && departmentId !== 'All Departments') list = list.filter(e => e.departmentId === departmentId);
+    res.json(list);
+  } catch {
+    let list = [...store.employees];
+    if (search) { const q = (search as string).toLowerCase(); list = list.filter(e => e.firstName.toLowerCase().includes(q) || e.lastName.toLowerCase().includes(q) || e.employeeId.toLowerCase().includes(q) || e.email.toLowerCase().includes(q)); }
+    if (status && status !== 'All') list = list.filter(e => e.status === status);
+    res.json(list);
   }
-
-  if (departmentId && departmentId !== 'All Departments') {
-    list = list.filter(e => e.departmentId === departmentId);
-  }
-
-  res.json(list);
 });
 
 app.get('/api/employees/:id', async (req: Request, res: Response) => {
@@ -405,41 +440,38 @@ app.delete('/api/employees/:id', requireAdmin, async (req: Request, res: Respons
 });
 
 
-// ================= ATTENDANCE (ADMIN - from DB) =================
+// ================= ATTENDANCE (ADMIN - from DB / Store fallback) =================
 app.get('/api/attendance', async (req: Request, res: Response) => {
   const { date, status, employeeId } = req.query;
 
-  const where: any = {};
-  if (date) where.date = new Date(date as string);
-  if (status) {
-    const statusMap: Record<string, string> = { Present: 'PRESENT', Absent: 'ABSENT', 'Half Day': 'HALF_DAY', 'On Leave': 'LEAVE' };
-    where.status = statusMap[status as string] || status;
+  try {
+    const where: any = {};
+    if (date) where.date = new Date(date as string);
+    if (status) { const sm: Record<string, string> = { Present: 'PRESENT', Absent: 'ABSENT', 'Half Day': 'HALF_DAY', 'On Leave': 'LEAVE' }; where.status = sm[status as string] || status; }
+    if (employeeId) { const u = await prisma.user.findFirst({ where: { employeeId: employeeId as string } }); if (u) where.userId = u.id; }
+    const records = await prisma.attendance.findMany({ where, include: { user: true }, orderBy: { date: 'desc' } });
+    const result = records.map(a => ({
+      id: a.id, employeeId: a.user.employeeId, date: a.date.toISOString().split('T')[0],
+      checkIn: a.checkIn ? a.checkIn.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--',
+      checkOut: a.checkOut ? a.checkOut.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--',
+      totalHours: Number(a.workHours) > 0 ? `${Math.floor(Number(a.workHours))}h ${Math.round((Number(a.workHours) % 1) * 60)}m` : '--',
+      status: a.status === 'PRESENT' ? 'Present' : a.status === 'HALF_DAY' ? 'Half Day' : a.status === 'LEAVE' ? 'On Leave' : 'Absent',
+      location: a.user.location || 'Office', employeeName: a.user.fullName, department: a.user.department || 'Unknown',
+    }));
+    res.json(result);
+  } catch {
+    // Store fallback
+    let list = [...store.attendance];
+    if (date) list = list.filter(a => a.date === date);
+    if (status && status !== 'All') list = list.filter(a => a.status === status);
+    if (employeeId) list = list.filter(a => a.employeeId === employeeId);
+    const result = list.map(a => {
+      const emp = store.employees.find(e => e.id === a.employeeId);
+      const dept = emp ? store.departments.find(d => d.id === emp.departmentId) : null;
+      return { ...a, employeeName: emp ? `${emp.firstName} ${emp.lastName}` : 'Unknown', department: dept?.name || 'Unknown' };
+    });
+    res.json(result);
   }
-  if (employeeId) {
-    const u = await prisma.user.findFirst({ where: { employeeId: employeeId as string } });
-    if (u) where.userId = u.id;
-  }
-
-  const records = await prisma.attendance.findMany({
-    where,
-    include: { user: true },
-    orderBy: { date: 'desc' },
-  });
-
-  const result = records.map(a => ({
-    id: a.id,
-    employeeId: a.user.employeeId,
-    date: a.date.toISOString().split('T')[0],
-    checkIn: a.checkIn ? a.checkIn.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--',
-    checkOut: a.checkOut ? a.checkOut.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--',
-    totalHours: Number(a.workHours) > 0 ? `${Math.floor(Number(a.workHours))}h ${Math.round((Number(a.workHours) % 1) * 60)}m` : '--',
-    status: a.status === 'PRESENT' ? 'Present' : a.status === 'HALF_DAY' ? 'Half Day' : a.status === 'LEAVE' ? 'On Leave' : 'Absent',
-    location: a.user.location || 'Office',
-    employeeName: a.user.fullName,
-    department: a.user.department || 'Unknown',
-  }));
-
-  res.json(result);
 });
 
 app.post('/api/attendance', async (req: Request, res: Response) => {
@@ -496,154 +528,94 @@ app.put('/api/attendance/:id', requireAdmin, async (req: Request, res: Response)
 });
 
 
-// ================= ATTENDANCE REGULARIZATION =================
+// ================= ATTENDANCE REGULARIZATION (Store-based, no Prisma) =================
 
-// Employee submits a correction request
-app.post('/api/attendance/regularization', async (req: Request, res: Response) => {
+// Employee submits a correction request (store-based)
+app.post('/api/attendance/regularization', (req: Request, res: Response) => {
   const { date, requestedStatus, reason } = req.body;
-  if (!date || !requestedStatus || !reason) {
-    return res.status(400).json({ error: 'date, requestedStatus and reason are required' });
-  }
+  if (!date || !requestedStatus || !reason) return res.status(400).json({ error: 'date, requestedStatus and reason are required' });
+  if (!activeSessionUser) return res.status(401).json({ error: 'Unauthorized' });
 
-  const user = await prisma.user.findFirst({ where: { email: req.headers['x-user-email'] as string } });
-  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  const empId = activeSessionUser.employeeId;
+  const existing = store.attendance.find(a => a.employeeId === empId && a.date === date);
+  const currentStatus = existing ? existing.status : 'Absent';
 
-  // Determine current status for that date
-  const existing = await prisma.attendance.findFirst({
-    where: { userId: user.id, date: new Date(date) }
-  });
-  const currentStatus = existing ? existing.status : AttendanceStatus.ABSENT;
-
-  const statusMap: Record<string, AttendanceStatus> = {
-    Present: AttendanceStatus.PRESENT,
-    'Half Day': AttendanceStatus.HALF_DAY,
-    'On Leave': AttendanceStatus.LEAVE,
-    Absent: AttendanceStatus.ABSENT,
+  const correction: store.AttendanceCorrection = {
+    id: `CORR-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    employeeId: empId,
+    date,
+    currentStatus,
+    requestedStatus,
+    reason,
+    status: 'PENDING',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
-  const reqStatus = statusMap[requestedStatus] || AttendanceStatus.PRESENT;
+  store.attendanceCorrections.push(correction);
 
-  const correction = await prisma.attendanceCorrection.create({
-    data: {
-      userId: user.id,
-      date: new Date(date),
-      currentStatus,
-      requestedStatus: reqStatus,
-      reason,
-      status: CorrectionStatus.PENDING,
-    },
-    include: { user: true },
-  });
-
-  res.json({
-    id: correction.id,
-    date: correction.date.toISOString().split('T')[0],
-    currentStatus: correction.currentStatus,
-    requestedStatus: correction.requestedStatus,
-    reason: correction.reason,
-    status: correction.status,
-    employeeName: correction.user.fullName,
-    createdAt: correction.createdAt,
-  });
+  const emp = store.employees.find(e => e.id === empId);
+  res.json({ ...correction, employeeName: emp ? `${emp.firstName} ${emp.lastName}` : empId });
 });
 
 // Get regularization requests (employee sees own; HR sees all)
-app.get('/api/attendance/regularization', async (req: Request, res: Response) => {
-  const user = await prisma.user.findFirst({ where: { email: req.headers['x-user-email'] as string } });
-  if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
-  const where: any = user.role === Role.HR_ADMIN ? {} : { userId: user.id };
-  if (req.query.status) where.status = req.query.status;
-
-  const corrections = await prisma.attendanceCorrection.findMany({
-    where,
-    include: { user: true },
-    orderBy: { createdAt: 'desc' },
+app.get('/api/attendance/regularization', (req: Request, res: Response) => {
+  if (!activeSessionUser) return res.status(401).json({ error: 'Unauthorized' });
+  const isHR = activeSessionUser.role === 'HR' || activeSessionUser.role === 'HR_ADMIN';
+  let list = isHR
+    ? [...store.attendanceCorrections]
+    : store.attendanceCorrections.filter(c => c.employeeId === activeSessionUser.employeeId);
+  if (req.query.status && req.query.status !== 'ALL') list = list.filter(c => c.status === req.query.status);
+  const result = list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(c => {
+    const emp = store.employees.find(e => e.id === c.employeeId);
+    const dept = emp ? store.departments.find(d => d.id === emp.departmentId) : null;
+    return { ...c, employeeName: emp ? `${emp.firstName} ${emp.lastName}` : c.employeeId, department: dept?.name || 'Unknown' };
   });
-
-  const statusLabelMap: Record<string, string> = {
-    PRESENT: 'Present', HALF_DAY: 'Half Day', ABSENT: 'Absent', LEAVE: 'On Leave'
-  };
-
-  res.json(corrections.map(c => ({
-    id: c.id,
-    employeeName: c.user.fullName,
-    employeeId: c.user.employeeId,
-    department: c.user.department || 'Unknown',
-    date: c.date.toISOString().split('T')[0],
-    currentStatus: statusLabelMap[c.currentStatus] || c.currentStatus,
-    requestedStatus: statusLabelMap[c.requestedStatus] || c.requestedStatus,
-    reason: c.reason,
-    status: c.status,
-    adminComment: c.adminComment,
-    createdAt: c.createdAt,
-  })));
+  res.json(result);
 });
 
 // HR approves a regularization request
-app.post('/api/attendance/regularization/:id/approve', async (req: Request, res: Response) => {
-  const hrUser = await prisma.user.findFirst({ where: { email: req.headers['x-user-email'] as string } });
-  if (!hrUser || hrUser.role !== Role.HR_ADMIN) return res.status(403).json({ error: 'Forbidden' });
-
-  const correction = await prisma.attendanceCorrection.findUnique({
-    where: { id: req.params.id },
-    include: { user: true },
-  });
-  if (!correction) return res.status(404).json({ error: 'Correction request not found' });
-  if (correction.status !== CorrectionStatus.PENDING) {
-    return res.status(400).json({ error: 'Request is not pending' });
+app.post('/api/attendance/regularization/:id/approve', (req: Request, res: Response) => {
+  if (!activeSessionUser || (activeSessionUser.role !== 'HR' && activeSessionUser.role !== 'HR_ADMIN')) {
+    return res.status(403).json({ error: 'Forbidden' });
   }
+  const idx = store.attendanceCorrections.findIndex(c => c.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Not found' });
+  if (store.attendanceCorrections[idx].status !== 'PENDING') return res.status(400).json({ error: 'Not pending' });
 
-  // Update correction status
-  const updated = await prisma.attendanceCorrection.update({
-    where: { id: correction.id },
-    data: { status: CorrectionStatus.APPROVED, adminComment: req.body.comment || null },
-  });
+  store.attendanceCorrections[idx].status = 'APPROVED';
+  store.attendanceCorrections[idx].adminComment = req.body.comment || undefined;
+  store.attendanceCorrections[idx].updatedAt = new Date().toISOString();
 
-  // Upsert the attendance record for that date
-  const existing = await prisma.attendance.findFirst({
-    where: { userId: correction.userId, date: correction.date }
-  });
+  const correction = store.attendanceCorrections[idx];
+  // Update or insert attendance record in store
+  const existingIdx = store.attendance.findIndex(a => a.employeeId === correction.employeeId && a.date === correction.date);
+  const newAtt: store.Attendance = {
+    id: `ATT-CORR-${Date.now()}`,
+    employeeId: correction.employeeId,
+    date: correction.date,
+    checkIn: correction.requestedStatus !== 'Absent' ? '09:00 AM' : '--',
+    checkOut: correction.requestedStatus !== 'Absent' ? '06:00 PM' : '--',
+    totalHours: correction.requestedStatus === 'Present' ? '9h 00m' : correction.requestedStatus === 'Half Day' ? '4h 30m' : '--',
+    status: correction.requestedStatus as any,
+    location: 'Office',
+  };
+  if (existingIdx >= 0) store.attendance[existingIdx] = newAtt;
+  else store.attendance.push(newAtt);
 
-  if (existing) {
-    await prisma.attendance.update({
-      where: { id: existing.id },
-      data: {
-        status: correction.requestedStatus,
-        checkIn: correction.requestedStatus !== AttendanceStatus.ABSENT ? new Date(`${correction.date.toISOString().split('T')[0]}T09:00:00`) : null,
-        checkOut: correction.requestedStatus !== AttendanceStatus.ABSENT ? new Date(`${correction.date.toISOString().split('T')[0]}T18:00:00`) : null,
-        workHours: correction.requestedStatus === AttendanceStatus.PRESENT ? 9 : correction.requestedStatus === AttendanceStatus.HALF_DAY ? 4.5 : 0,
-      },
-    });
-  } else {
-    await prisma.attendance.create({
-      data: {
-        userId: correction.userId,
-        date: correction.date,
-        status: correction.requestedStatus,
-        checkIn: correction.requestedStatus !== AttendanceStatus.ABSENT ? new Date(`${correction.date.toISOString().split('T')[0]}T09:00:00`) : null,
-        checkOut: correction.requestedStatus !== AttendanceStatus.ABSENT ? new Date(`${correction.date.toISOString().split('T')[0]}T18:00:00`) : null,
-        workHours: correction.requestedStatus === AttendanceStatus.PRESENT ? 9 : correction.requestedStatus === AttendanceStatus.HALF_DAY ? 4.5 : 0,
-      },
-    });
-  }
-
-  res.json({ success: true, correction: updated });
+  res.json({ success: true, correction: store.attendanceCorrections[idx] });
 });
 
 // HR rejects a regularization request
-app.post('/api/attendance/regularization/:id/reject', async (req: Request, res: Response) => {
-  const hrUser = await prisma.user.findFirst({ where: { email: req.headers['x-user-email'] as string } });
-  if (!hrUser || hrUser.role !== Role.HR_ADMIN) return res.status(403).json({ error: 'Forbidden' });
-
-  const correction = await prisma.attendanceCorrection.findUnique({ where: { id: req.params.id } });
-  if (!correction) return res.status(404).json({ error: 'Correction request not found' });
-
-  const updated = await prisma.attendanceCorrection.update({
-    where: { id: correction.id },
-    data: { status: CorrectionStatus.REJECTED, adminComment: req.body.comment || null },
-  });
-
-  res.json({ success: true, correction: updated });
+app.post('/api/attendance/regularization/:id/reject', (req: Request, res: Response) => {
+  if (!activeSessionUser || (activeSessionUser.role !== 'HR' && activeSessionUser.role !== 'HR_ADMIN')) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const idx = store.attendanceCorrections.findIndex(c => c.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Not found' });
+  store.attendanceCorrections[idx].status = 'REJECTED';
+  store.attendanceCorrections[idx].adminComment = req.body.comment || undefined;
+  store.attendanceCorrections[idx].updatedAt = new Date().toISOString();
+  res.json({ success: true, correction: store.attendanceCorrections[idx] });
 });
 
 // ================= LEAVES (ADMIN - from DB) =================
@@ -1138,40 +1110,38 @@ app.get('/api/reports/payroll', async (req: Request, res: Response) => {
 // ================= NOTIFICATIONS (from DB) =================
 app.get('/api/notifications', async (req: Request, res: Response) => {
   if (!activeSessionUser) return res.json({ list: [], unread: 0 });
-
-  const notifications = await prisma.notification.findMany({
-    where: { userId: activeSessionUser.id },
-    orderBy: { createdAt: 'desc' },
-  });
-
-  const list = notifications.map(n => ({
-    id: n.id,
-    userId: activeSessionUser.id,
-    title: n.title,
-    message: n.message,
-    type: n.type.toLowerCase(),
-    isRead: n.isRead,
-    createdAt: n.createdAt.toISOString(),
-  }));
-
-  const unread = list.filter(n => !n.isRead).length;
-  res.json({ list, unread });
+  try {
+    const notifications = await prisma.notification.findMany({
+      where: { userId: activeSessionUser.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    const list = notifications.map(n => ({ id: n.id, userId: activeSessionUser.id, title: n.title, message: n.message, type: n.type.toLowerCase(), isRead: n.isRead, createdAt: n.createdAt.toISOString() }));
+    res.json({ list, unread: list.filter(n => !n.isRead).length });
+  } catch {
+    // Store fallback
+    const userId = activeSessionUser.id;
+    const list = store.notifications.filter(n => n.userId === userId || n.userId === 'U1').slice(0, 20);
+    res.json({ list, unread: list.filter(n => !n.isRead).length });
+  }
 });
 
 app.put('/api/notifications/:id/read', async (req: Request, res: Response) => {
-  await prisma.notification.update({
-    where: { id: req.params.id },
-    data: { isRead: true },
-  });
+  try {
+    await prisma.notification.update({ where: { id: req.params.id }, data: { isRead: true } });
+  } catch {
+    const n = store.notifications.find(n => n.id === req.params.id);
+    if (n) n.isRead = true;
+  }
   res.json({ success: true });
 });
 
 app.put('/api/notifications/read-all', async (req: Request, res: Response) => {
   if (!activeSessionUser) return res.json({ success: false });
-  await prisma.notification.updateMany({
-    where: { userId: activeSessionUser.id },
-    data: { isRead: true },
-  });
+  try {
+    await prisma.notification.updateMany({ where: { userId: activeSessionUser.id }, data: { isRead: true } });
+  } catch {
+    store.notifications.forEach(n => { if (n.userId === activeSessionUser.id || n.userId === 'U1') n.isRead = true; });
+  }
   res.json({ success: true });
 });
 

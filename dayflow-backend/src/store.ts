@@ -115,6 +115,19 @@ export interface Notification {
   createdAt: string;
 }
 
+export interface AttendanceCorrection {
+  id: string;
+  employeeId: string;   // store employee ID (e.g. EMP001)
+  date: string;         // YYYY-MM-DD
+  currentStatus: string;
+  requestedStatus: string;
+  reason: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  adminComment?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Message {
   id: string;
   senderId: string;
@@ -536,6 +549,9 @@ export let notifications: Notification[] = [
   { id: 'NOT002', userId: 'U1', title: 'Leave Application', message: 'Cody Fisher submitted a Sick Leave certificate', type: 'leave', isRead: false, createdAt: new Date(Date.now() - 7200000).toISOString() },
   { id: 'NOT003', userId: 'U1', title: 'Late Attendance', message: 'Brooklyn Simmons checked in late today', type: 'attendance', isRead: true, createdAt: new Date(Date.now() - 14400000).toISOString() }
 ];
+
+// Attendance Corrections (Regularization)
+export let attendanceCorrections: AttendanceCorrection[] = [];
 
 // Messages
 export let messages: Message[] = [
