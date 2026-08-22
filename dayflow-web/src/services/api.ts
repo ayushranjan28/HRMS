@@ -188,6 +188,11 @@ export const sendMessage = async (receiverId: string, message: string) => {
   return response.data;
 };
 
+export const markMessageRead = async (id: string) => {
+  const response = await api.put(`/messages/${id}/read`);
+  return response.data;
+};
+
 // Settings
 export const getSettings = async () => {
   const response = await api.get('/settings');

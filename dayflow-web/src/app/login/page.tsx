@@ -2,16 +2,18 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  Shield, Sparkles, KeyRound, Mail, 
-  User, Fingerprint, RefreshCw, Eye, 
-  EyeOff, Lock 
+import {
+  Shield, Sparkles, KeyRound, Mail,
+  User, Fingerprint, RefreshCw, Eye,
+  EyeOff, Lock
 } from 'lucide-react';
+
+import * as api from '@/services/api';
 
 export default function AuthPage() {
   const router = useRouter();
   const [isSignUp, setIsSignUp] = useState(false);
-  
+
   // Input fields
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -53,38 +55,61 @@ export default function AuthPage() {
 
   const strength = getPasswordStrength(password);
 
-  const handleSignIn = (e: React.FormEvent) => {
+  const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
 
     if (!email || !password) {
       setError('Please fill in all fields.');
       return;
     }
 
-    // Mock Login trigger based on the ID Rule: OI(First2)(Last2)(Year)(Serial)
-    const validLogins = ['OICOFI20200001', 'OIALMA20230002']; // Admin, Employee
-    if (validLogins.includes(email.toUpperCase())) {
+    try {
+      const data = await api.login({ email, password });
       setSuccess('Logged in successfully! Redirecting...');
-      
-      // Simulate setting role in localStorage based on login
-      if (typeof window !== 'undefined') {
-        if (email.toUpperCase() === 'OICOFI20200001') {
-           localStorage.setItem('dayflow_role', 'Admin');
-        } else {
-           localStorage.setItem('dayflow_role', 'Employee');
-        }
-      }
-
       setTimeout(() => {
-        if (email.toUpperCase() === 'OICOFI20200001') {
-          router.push('/admin'); // Redirect HR to Admin Dashboard
+        if (data.user.role === 'HR') {
+          router.push('/admin');
         } else {
-          router.push('/'); // Redirect Employee to Employee Dashboard
+          router.push('/');
         }
       }, 1000);
-    } else {
-      setError('Invalid credentials. Hint: use OICOFI20200001 (Admin) or OIALMA20230002 (Employee)');
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.error || 'Invalid credentials';
+      setError(errorMsg);
+    }
+  };
+
+  const handleQuickAdminLogin = async () => {
+    setError('');
+    setSuccess('');
+    try {
+      const data = await api.login({ email: 'OIALMA20220001', password: 'password' });
+      setEmail('OIALMA20220001');
+      setPassword('password');
+      setSuccess('Logged in successfully as Admin! Redirecting...');
+      setTimeout(() => {
+        router.push('/admin');
+      }, 1000);
+    } catch (err: any) {
+      setError('Quick login failed. Verify server status.');
+    }
+  };
+
+  const handleQuickEmployeeLogin = async () => {
+    setError('');
+    setSuccess('');
+    try {
+      const data = await api.login({ email: 'OIJACO20200001', password: 'password' });
+      setEmail('OIJACO20200001');
+      setPassword('password');
+      setSuccess('Logged in successfully as Employee! Redirecting...');
+      setTimeout(() => {
+        router.push('/');
+      }, 1000);
+    } catch (err: any) {
+      setError('Quick login failed. Verify server status.');
     }
   };
 
@@ -190,7 +215,7 @@ export default function AuthPage() {
                 <RefreshCw size={12} className={verificationResending ? 'animate-spin' : ''} />
                 {verificationResending ? 'Resending...' : 'Resend Code'}
               </button>
-              
+
               <button
                 type="button"
                 onClick={() => setIsVerifyingEmail(false)}
@@ -208,7 +233,7 @@ export default function AuthPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#2B2827] p-6 text-[#1F1B1A]">
       <div className="bg-[#FAF7F2] rounded-[28px] p-8 max-w-md w-full border border-black/5 shadow-[0_12px_36px_rgba(0,0,0,0.22)] animate-fade-in">
-        
+
         {/* Logo Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 mb-3">
@@ -238,7 +263,7 @@ export default function AuthPage() {
         {isSignUp ? (
           /* ================= SIGN UP ================= */
           <form onSubmit={handleSignUp} className="space-y-4">
-            
+
             {/* Employee ID */}
             <div className="space-y-1">
               <label className="text-[10px] font-bold uppercase tracking-wider text-[#5E5652]">Employee ID</label>
@@ -363,7 +388,20 @@ export default function AuthPage() {
         ) : (
           /* ================= SIGN IN ================= */
           <form onSubmit={handleSignIn} className="space-y-5">
-            
+
+            <div className="bg-[#CAB5F5]/10 border border-[#CAB5F5]/30 rounded-[14px] p-3.5 text-[11px] text-[#412A6E] leading-relaxed">
+              <span className="font-bold">🔑 System Mock Login Credentials:</span>
+              <div className="mt-1">
+                <strong>Admin Login ID:</strong> <code className="bg-white/80 px-1.5 py-0.5 rounded font-mono">OIALMA20220001</code>
+              </div>
+              <div className="mt-0.5">
+                <strong>Employee Login ID:</strong> <code className="bg-white/80 px-1.5 py-0.5 rounded font-mono">OIJACO20200001</code>
+              </div>
+              <div className="mt-0.5">
+                <strong>Password:</strong> <code className="bg-white/80 px-1.5 py-0.5 rounded font-mono">password</code>
+              </div>
+            </div>
+
             {/* Login ID */}
             <div className="space-y-1">
               <label className="text-[10px] font-bold uppercase tracking-wider text-[#5E5652]">Login ID</label>
@@ -418,6 +456,23 @@ export default function AuthPage() {
             >
               Sign In
             </button>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleQuickAdminLogin}
+                className="flex-1 py-2.5 bg-[#CAB5F5]/10 border border-[#CAB5F5] hover:bg-[#CAB5F5]/20 text-[#412A6E] font-bold rounded-[14px] shadow-sm transition-all active:scale-95 text-[10px] flex items-center justify-center gap-1"
+              >
+                ⚡ Quick Admin
+              </button>
+              <button
+                type="button"
+                onClick={handleQuickEmployeeLogin}
+                className="flex-1 py-2.5 bg-[#67AFA5]/10 border border-[#67AFA5] hover:bg-[#67AFA5]/20 text-[#2B544E] font-bold rounded-[14px] shadow-sm transition-all active:scale-95 text-[10px] flex items-center justify-center gap-1"
+              >
+                ⚡ Quick Employee
+              </button>
+            </div>
 
             <p className="text-center text-xs text-[#5E5652] mt-4">
               New to Dayflow?{' '}

@@ -374,7 +374,7 @@ export let users: User[] = [
     username: 'alex',
     email: 'alex@dayflow.com',
     passwordHash: hashSync('password', 10),
-    role: 'HR',
+    role: 'Employee',
     employeeId: 'EMP001',
     createdAt: new Date().toISOString()
   },

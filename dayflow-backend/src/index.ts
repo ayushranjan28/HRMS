@@ -114,6 +114,15 @@ app.get('/api/dashboard', async (req: Request, res: Response) => {
       name: dayNames[new Date(d).getDay()],
       ...dateMap[d],
     })),
+    upcoming: [
+      { type: 'video', title: 'Product sync meeting', time: '10:30 AM - 11:00 AM' },
+      { type: 'calendar', title: 'HR policy update briefing', time: '02:00 PM - 02:30 PM' }
+    ],
+    recentActivity: [
+      { type: 'checkin', text: 'Checked in at Koramangala Office', time: '09:12 AM' },
+      { type: 'leave', text: 'Casual Leave request approved', time: 'Yesterday' },
+      { type: 'payslip', text: 'July payslip is now available', time: '3 days ago' }
+    ]
   });
 });
 
@@ -124,13 +133,17 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
-  const user = await prisma.user.findUnique({
-    where: { email: email.toLowerCase() },
+  const user = await prisma.user.findFirst({
+    where: { 
+      OR: [
+        { email: email.toLowerCase() }
+      ]
+    },
     include: { privateInfo: true, salaryStructure: true },
   });
 
   if (!user || !compareSync(password, user.passwordHash)) {
-    return res.status(401).json({ error: 'Invalid email or password' });
+    return res.status(401).json({ error: 'Invalid credentials' });
   }
 
   activeSessionUser = user;
@@ -1043,6 +1056,14 @@ app.post('/api/messages', (req: Request, res: Response) => {
   res.json(newMsg);
 });
 
+app.put('/api/messages/:id/read', (req: Request, res: Response) => {
+  const item = store.messages.find(m => m.id === req.params.id);
+  if (item) {
+    item.isRead = true;
+  }
+  res.json({ success: true });
+});
+
 
 // ================= SETTINGS (kept in-memory) =================
 app.get('/api/settings', (req: Request, res: Response) => {
@@ -1241,6 +1262,42 @@ app.post('/api/admin/reimbursements/:id/payroll', requireAdmin, (req: Request, r
   res.json({ success: true, message: `Successfully linked reimbursement to ${month} ${year} payslip.` });
 });
 
+
+// ================= REIMBURSEMENTS (MOCK) =================
+let reimbursements: any[] = [
+  { id: 'REIM-001', employeeId: 'OIALMA20230002', date: '2026-08-15', category: 'Travel', amount: 350.00, status: 'Pending', description: 'Flight to NYC' },
+  { id: 'REIM-002', employeeId: 'OIALMA20230002', date: '2026-08-16', category: 'Meals', amount: 45.50, status: 'Approved', description: 'Client Dinner' }
+];
+
+app.get('/api/reimbursements', (req: Request, res: Response) => {
+  // Return just the current user's reimbursements (mocked as the first employee for now)
+  const userReimbursements = reimbursements.filter(r => r.employeeId === (store.activeSessionUser?.employeeId || 'OIALMA20230002'));
+  res.json(userReimbursements);
+});
+
+app.get('/api/admin/reimbursements', (req: Request, res: Response) => {
+  // Return all reimbursements with employee names
+  const enriched = reimbursements.map(r => {
+    const emp = store.employees.find(e => e.id === r.employeeId);
+    return { ...r, employeeName: emp ? `${emp.firstName} ${emp.lastName}` : 'Unknown' };
+  });
+  res.json(enriched);
+});
+
+app.post('/api/reimbursements', (req: Request, res: Response) => {
+  const { date, category, amount, description } = req.body;
+  const newReimbursement = {
+    id: `REIM-00${reimbursements.length + 1}`,
+    employeeId: store.activeSessionUser?.employeeId || 'OIALMA20230002',
+    date,
+    category,
+    amount: parseFloat(amount),
+    status: 'Pending',
+    description
+  };
+  reimbursements.push(newReimbursement);
+  res.json(newReimbursement);
+});
 
 app.listen(port, () => {
   console.log(`⚡️[server]: Server is running at http://localhost:${port} (PostgreSQL connected)`);

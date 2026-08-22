@@ -18,6 +18,11 @@ export function Header() {
   const [messages, setMessages] = useState<any[]>([]);
   const [unreadMsgsCount, setUnreadMsgsCount] = useState(0);
 
+  // Message chat & reply modal states
+  const [activeChat, setActiveChat] = useState<any>(null);
+  const [replyText, setReplyText] = useState('');
+  const [showReplyToast, setShowReplyToast] = useState(false);
+
   const profileRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
   const msgRef = useRef<HTMLDivElement>(null);
@@ -121,6 +126,31 @@ export function Header() {
       fetchNotificationsAndMessages();
     } catch (e) {
       console.error('Error marking all notifications read:', e);
+    }
+  };
+
+  const handleMessageClick = async (msg: any) => {
+    try {
+      await api.markMessageRead(msg.id);
+      setActiveChat(msg);
+      setShowMsgDropdown(false);
+      fetchNotificationsAndMessages();
+    } catch (e) {
+      console.error('Error marking message read:', e);
+    }
+  };
+
+  const handleSendReply = async () => {
+    if (!replyText.trim() || !activeChat) return;
+    try {
+      await api.sendMessage(activeChat.senderId, replyText);
+      setReplyText('');
+      setActiveChat(null);
+      setShowReplyToast(true);
+      setTimeout(() => setShowReplyToast(false), 3000);
+      fetchNotificationsAndMessages();
+    } catch (e) {
+      console.error('Error replying to message:', e);
     }
   };
 
@@ -269,7 +299,7 @@ export function Header() {
                     <div 
                       key={m.id} 
                       className={`p-3.5 hover:bg-[#F7F5F1]/30 transition-colors flex gap-3 items-start cursor-pointer ${!m.isRead ? 'bg-[#7FAF3F]/5 font-bold' : ''}`}
-                      onClick={() => window.location.href = '/admin/settings'} // Redirect settings or message panel
+                      onClick={() => handleMessageClick(m)}
                     >
                       <img src={m.senderAvatar} alt="" className="w-8 h-8 rounded-full object-cover border border-[#E6E3DE]" />
                       <div className="flex-1 min-w-0">
@@ -346,6 +376,64 @@ export function Header() {
           )}
         </div>
       </div>
+
+      {/* Active Message/Reply Modal */}
+      {activeChat && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl p-8 max-w-md w-full mx-4 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200 text-[#2D3032]">
+            <div className="flex items-center gap-3 border-b border-[#E6E3DE] pb-4 mb-4">
+              <img src={activeChat.senderAvatar} alt="" className="w-10 h-10 rounded-full object-cover border border-[#E6E3DE]" />
+              <div>
+                <h3 className="font-bold text-sm text-[#2D3032]">{activeChat.senderName}</h3>
+                <span className="text-[10px] text-[#777A7C] font-semibold">Message Thread</span>
+              </div>
+              <span className="text-[9px] text-[#9A9C9D] ml-auto">
+                {new Date(activeChat.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+
+            <div className="bg-[#F7F5F1] p-4 rounded-2xl text-xs leading-relaxed text-[#2D3032] mb-6 whitespace-pre-wrap max-h-48 overflow-y-auto border border-[#E6E3DE]/40">
+              {activeChat.message}
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-[#777A7C] uppercase tracking-wider mb-2">Send a Reply</label>
+                <textarea 
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  placeholder="Type your response here..."
+                  rows={3}
+                  className="w-full bg-[#F7F5F1] border border-transparent focus:border-[#7FAF3F] rounded-xl px-4 py-3 text-xs outline-none transition-colors resize-none text-[#2D3032]"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setActiveChat(null)}
+                  className="flex-1 bg-white border border-[#E6E3DE] text-[#2D3032] py-2.5 rounded-xl text-xs font-bold hover:bg-[#F7F5F1] transition-all cursor-pointer"
+                >
+                  Close
+                </button>
+                <button 
+                  onClick={handleSendReply}
+                  disabled={!replyText.trim()}
+                  className="flex-1 bg-[#7FAF3F] text-white py-2.5 rounded-xl text-xs font-bold hover:bg-[#668F2F] transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-md active:scale-95"
+                >
+                  Send Reply
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success reply Toast */}
+      {showReplyToast && (
+        <div className="fixed top-6 right-6 z-50 bg-[#7FAF3F] text-white px-6 py-4 rounded-2xl shadow-2xl font-bold text-sm">
+          Reply sent successfully!
+        </div>
+      )}
     </header>
   );
 }
