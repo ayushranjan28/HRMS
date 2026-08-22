@@ -294,80 +294,93 @@ app.get('/api/employees', async (req: Request, res: Response) => {
 });
 
 app.get('/api/employees/:id', async (req: Request, res: Response) => {
-  const user = await prisma.user.findFirst({
-    where: { employeeId: req.params.id },
-    include: {
-      privateInfo: true,
-      salaryStructure: { include: { components: true } },
-      attendance: { orderBy: { date: 'desc' }, take: 30 },
-      leaveRequests: { orderBy: { appliedOn: 'desc' } },
-      leaveBalances: true,
-      payrolls: { include: { items: true }, orderBy: { year: 'desc' } },
-    },
-  });
+  try {
+    const user = await prisma.user.findFirst({
+      where: { employeeId: req.params.id },
+      include: {
+        privateInfo: true,
+        salaryStructure: { include: { components: true } },
+        attendance: { orderBy: { date: 'desc' }, take: 30 },
+        leaveRequests: { orderBy: { appliedOn: 'desc' } },
+        leaveBalances: true,
+        payrolls: { include: { items: true }, orderBy: { year: 'desc' } },
+      },
+    });
 
-  if (!user) {
-    return res.status(404).json({ error: 'Employee not found' });
+    if (!user) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    const emp = userToEmployee(user);
+
+    // Transform attendance to expected format
+    const attendance = user.attendance.map(a => ({
+      id: a.id,
+      employeeId: user.employeeId,
+      date: a.date.toISOString().split('T')[0],
+      checkIn: a.checkIn ? a.checkIn.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--',
+      checkOut: a.checkOut ? a.checkOut.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--',
+      totalHours: `${Number(a.workHours).toFixed(0)}h`,
+      status: a.status === 'PRESENT' ? 'Present' : a.status === 'HALF_DAY' ? 'Half Day' : a.status === 'LEAVE' ? 'On Leave' : 'Absent',
+      location: user.location || '',
+    }));
+
+    const leaveTypeMap: Record<string, string> = {
+      PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave',
+      UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave',
+    };
+
+    const leaveRequests = user.leaveRequests.map(l => ({
+      id: l.id,
+      employeeId: user.employeeId,
+      leaveType: leaveTypeMap[l.type] || l.type,
+      startDate: l.startDate.toISOString().split('T')[0],
+      endDate: l.endDate.toISOString().split('T')[0],
+      duration: Number(l.days),
+      reason: l.reason,
+      status: l.status === 'PENDING' ? 'Pending' : l.status === 'APPROVED' ? 'Approved' : 'Rejected',
+      appliedAt: l.appliedOn.toISOString().split('T')[0],
+    }));
+
+    const leaveBalances = user.leaveBalances.map(b => ({
+      id: b.id,
+      employeeId: user.employeeId,
+      leaveType: leaveTypeMap[b.type] || b.type,
+      allocated: Number(b.totalDays),
+      used: Number(b.usedDays),
+      remaining: Number(b.totalDays) - Number(b.usedDays),
+    }));
+
+    const payroll = user.payrolls.map(p => ({
+      id: p.id,
+      employeeId: user.employeeId,
+      payrollMonth: `${p.year}-${String(p.month).padStart(2, '0')}`,
+      basicSalary: Number(p.grossSalary),
+      allowances: 0,
+      bonus: 0,
+      overtime: 0,
+      grossSalary: Number(p.grossSalary),
+      tax: 0,
+      pf: 0,
+      otherDeductions: 0,
+      totalDeductions: Number(p.totalDeductions),
+      netSalary: Number(p.netSalary),
+      status: p.paidOn ? 'Paid' : 'Draft',
+    }));
+
+    res.json({ employee: emp, attendance, leaveRequests, leaveBalances, payroll });
+  } catch {
+    // Store fallback
+    const emp = store.employees.find(e => e.employeeId === req.params.id || e.id === req.params.id);
+    if (!emp) return res.status(404).json({ error: 'Employee not found' });
+
+    const attendance = store.attendance.filter(a => a.employeeId === emp.employeeId);
+    const leaveRequests = store.leaveRequests.filter(l => l.employeeId === emp.employeeId);
+    const leaveBalances = store.leaveBalances.filter(b => b.employeeId === emp.employeeId);
+    const payroll = store.payrolls.filter(p => p.employeeId === emp.employeeId);
+
+    res.json({ employee: emp, attendance, leaveRequests, leaveBalances, payroll });
   }
-
-  const emp = userToEmployee(user);
-
-  // Transform attendance to expected format
-  const attendance = user.attendance.map(a => ({
-    id: a.id,
-    employeeId: user.employeeId,
-    date: a.date.toISOString().split('T')[0],
-    checkIn: a.checkIn ? a.checkIn.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--',
-    checkOut: a.checkOut ? a.checkOut.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--',
-    totalHours: `${Number(a.workHours).toFixed(0)}h`,
-    status: a.status === 'PRESENT' ? 'Present' : a.status === 'HALF_DAY' ? 'Half Day' : a.status === 'LEAVE' ? 'On Leave' : 'Absent',
-    location: user.location || '',
-  }));
-
-  const leaveTypeMap: Record<string, string> = {
-    PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave',
-    UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave',
-  };
-
-  const leaveRequests = user.leaveRequests.map(l => ({
-    id: l.id,
-    employeeId: user.employeeId,
-    leaveType: leaveTypeMap[l.type] || l.type,
-    startDate: l.startDate.toISOString().split('T')[0],
-    endDate: l.endDate.toISOString().split('T')[0],
-    duration: Number(l.days),
-    reason: l.reason,
-    status: l.status === 'PENDING' ? 'Pending' : l.status === 'APPROVED' ? 'Approved' : 'Rejected',
-    appliedAt: l.appliedOn.toISOString().split('T')[0],
-  }));
-
-  const leaveBalances = user.leaveBalances.map(b => ({
-    id: b.id,
-    employeeId: user.employeeId,
-    leaveType: leaveTypeMap[b.type] || b.type,
-    allocated: Number(b.totalDays),
-    used: Number(b.usedDays),
-    remaining: Number(b.totalDays) - Number(b.usedDays),
-  }));
-
-  const payroll = user.payrolls.map(p => ({
-    id: p.id,
-    employeeId: user.employeeId,
-    payrollMonth: `${p.year}-${String(p.month).padStart(2, '0')}`,
-    basicSalary: Number(p.grossSalary),
-    allowances: 0,
-    bonus: 0,
-    overtime: 0,
-    grossSalary: Number(p.grossSalary),
-    tax: 0,
-    pf: 0,
-    otherDeductions: 0,
-    totalDeductions: Number(p.totalDeductions),
-    netSalary: Number(p.netSalary),
-    status: p.paidOn ? 'Paid' : 'Draft',
-  }));
-
-  res.json({ employee: emp, attendance, leaveRequests, leaveBalances, payroll });
 });
 
 app.post('/api/employees', requireAdmin, async (req: Request, res: Response) => {
