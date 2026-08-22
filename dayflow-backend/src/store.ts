@@ -419,25 +419,66 @@ export function setActiveSessionUser(user: User) {
 }
 
 // Attendance Records (last few days + today)
-export let attendance: Attendance[] = [
-  // EMP001 (Alex)
-  { id: 'ATT001', employeeId: 'EMP001', date: '2026-08-20', checkIn: '09:12 AM', checkOut: '06:05 PM', totalHours: '8h 53m', status: 'Present', location: 'Bangalore Office' },
-  { id: 'ATT002', employeeId: 'EMP001', date: '2026-08-21', checkIn: '09:05 AM', checkOut: '06:00 PM', totalHours: '8h 55m', status: 'Present', location: 'Bangalore Office' },
-  { id: 'ATT003', employeeId: 'EMP001', date: '2026-08-22', checkIn: '09:12 AM', checkOut: '', totalHours: '--', status: 'Present', location: 'Bangalore Office' },
+// Programmatically generate historical attendance for the last 3 months (June, July, August 2026)
+function generateHistoricalAttendance(): Attendance[] {
+  const list: Attendance[] = [];
+  const empIds = ['EMP001', 'EMP002', 'EMP003', 'EMP004', 'EMP005', 'EMP006', 'EMP007', 'EMP008'];
   
-  // EMP002 (Jane)
-  { id: 'ATT004', employeeId: 'EMP002', date: '2026-08-20', checkIn: '08:55 AM', checkOut: '05:30 PM', totalHours: '8h 35m', status: 'Present', location: 'Remote' },
-  { id: 'ATT005', employeeId: 'EMP002', date: '2026-08-21', checkIn: '09:00 AM', checkOut: '05:45 PM', totalHours: '8h 45m', status: 'Present', location: 'Remote' },
-  { id: 'ATT006', employeeId: 'EMP002', date: '2026-08-22', checkIn: '08:45 AM', checkOut: '', totalHours: '--', status: 'Present', location: 'Remote' },
+  // Months: June (5), July (6), August (7) - 0-indexed
+  const months = [5, 6, 7]; 
+  let attIdCounter = 1;
+  
+  empIds.forEach(empId => {
+    months.forEach(m => {
+      const numDays = new Date(2026, m + 1, 0).getDate();
+      for (let day = 1; day <= numDays; day++) {
+        const dateObj = new Date(2026, m, day);
+        const dayOfWeek = dateObj.getDay();
+        
+        // Skip weekends
+        if (dayOfWeek === 0 || dayOfWeek === 6) continue;
+        
+        // For August, don't generate future records beyond August 22, 2026
+        if (m === 7 && day > 22) continue;
+        
+        const dateStr = `2026-${String(m + 1).padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+        
+        // Randomize check-in/out a bit
+        const status = Math.random() > 0.05 ? 'Present' : 'Absent';
+        if (status === 'Present') {
+          const randMin = Math.floor(Math.random() * 20);
+          const checkIn = `09:${randMin.toString().padStart(2, '0')} AM`;
+          const checkOut = day === 22 && m === 7 ? '' : `06:${Math.floor(Math.random() * 10).toString().padStart(2, '0')} PM`;
+          list.push({
+            id: `ATT_GEN_${attIdCounter++}`,
+            employeeId: empId,
+            date: dateStr,
+            checkIn,
+            checkOut,
+            totalHours: checkOut ? '8h 50m' : '--',
+            status,
+            location: empId === 'EMP002' ? 'Remote' : 'Bangalore Office'
+          });
+        } else {
+          list.push({
+            id: `ATT_GEN_${attIdCounter++}`,
+            employeeId: empId,
+            date: dateStr,
+            checkIn: '--',
+            checkOut: '--',
+            totalHours: '--',
+            status,
+            location: '--'
+          });
+        }
+      }
+    });
+  });
+  
+  return list;
+}
 
-  // EMP006 (Brooklyn)
-  { id: 'ATT007', employeeId: 'EMP006', date: '2026-08-21', checkIn: '09:42 AM', checkOut: '06:15 PM', totalHours: '8h 33m', status: 'Late', location: 'Bangalore Office' },
-  { id: 'ATT008', employeeId: 'EMP006', date: '2026-08-22', checkIn: '09:40 AM', checkOut: '', totalHours: '--', status: 'Late', location: 'Bangalore Office' },
-
-  // EMP007 (Leslie - On Leave)
-  { id: 'ATT009', employeeId: 'EMP007', date: '2026-08-21', checkIn: '--', checkOut: '--', totalHours: '--', status: 'On Leave', location: '--' },
-  { id: 'ATT010', employeeId: 'EMP007', date: '2026-08-22', checkIn: '--', checkOut: '--', totalHours: '--', status: 'On Leave', location: '--' }
-];
+export let attendance: Attendance[] = generateHistoricalAttendance();
 
 // Leave Balances
 export let leaveBalances: LeaveBalance[] = [];
