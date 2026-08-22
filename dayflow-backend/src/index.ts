@@ -572,13 +572,20 @@ app.get('/api/attendance/today', async (req: Request, res: Response) => {
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const record = await prisma.attendance.findFirst({
-    where: {
-      userId: activeSessionUser.id,
-      date: { gte: today, lt: tomorrow },
-    },
-  });
-  res.json({ record });
+  try {
+    const record = await prisma.attendance.findFirst({
+      where: {
+        userId: activeSessionUser.id,
+        date: { gte: today, lt: tomorrow },
+      },
+    });
+    res.json({ record });
+  } catch {
+    const empId = activeSessionUser.employeeId || 'EMP001';
+    const todayStr = new Date().toISOString().split('T')[0];
+    const record = store.attendance.find(a => a.employeeId === empId && a.date === todayStr);
+    res.json({ record: record ? { id: record.id, date: record.date, checkIn: record.checkIn, checkOut: record.checkOut, status: record.status } : null });
+  }
 });
 
 app.post('/api/attendance/mark', async (req: Request, res: Response) => {
