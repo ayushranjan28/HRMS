@@ -145,7 +145,7 @@ async function main() {
 
   const cody = await prisma.user.create({
     data: {
-      employeeId: 'EMP004',
+      employeeId: 'OICOFI20200001',
       fullName: 'Cody Fisher',
       email: 'cody@dayflow.com',
       passwordHash: hashSync('password', 10),
@@ -160,7 +160,7 @@ async function main() {
           residingAddress: 'Koramangala 4th Block',
           nationality: 'Indian',
           gender: 'Male',
-          dateOfJoining: new Date('2021-08-20'),
+          dateOfJoining: new Date('2020-08-20'),
         },
       },
       salaryStructure: {
