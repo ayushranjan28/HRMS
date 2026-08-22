@@ -11,7 +11,7 @@ import { db, saveBase64File, ExpenseClaim, ExpenseCategory, ExpenseBill } from '
 dotenv.config();
 
 const app: Express = express();
-const port = process.env.PORT || 8080;
+const port = process.env.PORT || 8081;
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -23,16 +23,30 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 // Active session tracking (kept in-memory for session management)
 let activeSessionUser: any = null;
 
-// Middleware to restore session from headers
 app.use(async (req, res, next) => {
   if (!activeSessionUser && req.headers['x-user-email']) {
     const email = req.headers['x-user-email'] as string;
-    const user = await prisma.user.findUnique({
-      where: { email },
-      include: { privateInfo: true, salaryStructure: true },
-    });
-    if (user) {
-      activeSessionUser = user;
+    try {
+      const user = await prisma.user.findUnique({
+        where: { email },
+        include: { privateInfo: true, salaryStructure: true },
+      });
+      if (user) {
+        activeSessionUser = user;
+      }
+    } catch {
+      // Store fallback
+      const storeUser = store.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+      if (storeUser) {
+        const storeEmp = store.employees.find(e => e.id === storeUser.employeeId);
+        activeSessionUser = {
+          id: storeUser.id,
+          role: storeUser.role === 'HR' ? 'HR_ADMIN' : 'EMPLOYEE',
+          employeeId: storeUser.employeeId,
+          email: storeUser.email,
+          fullName: storeEmp ? `${storeEmp.firstName} ${storeEmp.lastName}` : storeUser.username,
+        };
+      }
     }
   }
   next();
@@ -771,236 +785,208 @@ app.post('/api/leaves', async (req: Request, res: Response) => {
 
 app.put('/api/leaves/:id/approve', requireAdmin, async (req: Request, res: Response) => {
   const { comment } = req.body;
-
-  const leave = await prisma.leaveRequest.findUnique({ where: { id: req.params.id }, include: { user: true } });
-  if (!leave) return res.status(404).json({ error: 'Leave request not found' });
-
-  const updated = await prisma.leaveRequest.update({
-    where: { id: req.params.id },
-    data: {
-      status: LeaveStatus.APPROVED,
-      adminComment: comment || null,
-    },
-  });
-
-  // Deduct leave balance
-  await prisma.leaveBalance.updateMany({
-    where: { userId: leave.userId, type: leave.type, year: new Date().getFullYear() },
-    data: { usedDays: { increment: Number(leave.days) } },
-  });
-
-  // Mark attendance as leave for those days
-  const start = new Date(leave.startDate);
-  const end = new Date(leave.endDate);
-  const current = new Date(start);
-  while (current <= end) {
-    await prisma.attendance.upsert({
-      where: { userId_date: { userId: leave.userId, date: new Date(current) } },
-      update: { status: AttendanceStatus.LEAVE },
-      create: { userId: leave.userId, date: new Date(current), status: AttendanceStatus.LEAVE, workHours: 0 },
-    });
-    current.setDate(current.getDate() + 1);
+  try {
+    const leave = await prisma.leaveRequest.findUnique({ where: { id: req.params.id }, include: { user: true } });
+    if (!leave) return res.status(404).json({ error: 'Leave request not found' });
+    const updated = await prisma.leaveRequest.update({ where: { id: req.params.id }, data: { status: LeaveStatus.APPROVED, adminComment: comment || null } });
+    await prisma.leaveBalance.updateMany({ where: { userId: leave.userId, type: leave.type, year: new Date().getFullYear() }, data: { usedDays: { increment: Number(leave.days) } } }).catch(() => {});
+    const start = new Date(leave.startDate); const end = new Date(leave.endDate); const current = new Date(start);
+    while (current <= end) { await prisma.attendance.upsert({ where: { userId_date: { userId: leave.userId, date: new Date(current) } }, update: { status: AttendanceStatus.LEAVE }, create: { userId: leave.userId, date: new Date(current), status: AttendanceStatus.LEAVE, workHours: 0 } }).catch(() => {}); current.setDate(current.getDate() + 1); }
+    await prisma.notification.create({ data: { userId: leave.userId, type: 'LEAVE', title: 'Leave Request Approved', message: `Your leave request was approved.${comment ? ' Comment: ' + comment : ''}` } }).catch(() => {});
+    const leaveTypeMap: Record<string, string> = { PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave', UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave' };
+    res.json({ id: updated.id, employeeId: leave.user.employeeId, leaveType: leaveTypeMap[updated.type] || updated.type, startDate: updated.startDate.toISOString().split('T')[0], endDate: updated.endDate.toISOString().split('T')[0], duration: Number(updated.days), reason: updated.reason, status: 'Approved', appliedAt: updated.appliedOn.toISOString().split('T')[0] });
+  } catch {
+    // Store fallback
+    const leave = store.leaveRequests.find(l => l.id === req.params.id);
+    if (!leave) return res.status(404).json({ error: 'Leave request not found' });
+    leave.status = 'Approved'; leave.reviewedAt = new Date().toISOString(); leave.reviewedBy = 'HR';
+    res.json({ ...leave, status: 'Approved' });
   }
-
-  // Notify employee
-  await prisma.notification.create({
-    data: {
-      userId: leave.userId,
-      type: 'LEAVE',
-      title: 'Leave Request Approved',
-      message: `Your leave request (${Number(leave.days)} days) was approved.${comment ? ' Comment: ' + comment : ''}`,
-    },
-  });
-
-  const leaveTypeMap: Record<string, string> = {
-    PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave',
-    UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave',
-  };
-
-  res.json({
-    id: updated.id,
-    employeeId: leave.user.employeeId,
-    leaveType: leaveTypeMap[updated.type] || updated.type,
-    startDate: updated.startDate.toISOString().split('T')[0],
-    endDate: updated.endDate.toISOString().split('T')[0],
-    duration: Number(updated.days),
-    reason: updated.reason,
-    status: 'Approved',
-    appliedAt: updated.appliedOn.toISOString().split('T')[0],
-  });
 });
 
 app.put('/api/leaves/:id/reject', requireAdmin, async (req: Request, res: Response) => {
   const { comment } = req.body;
   if (!comment) return res.status(400).json({ error: 'Rejection reason is required' });
-
-  const leave = await prisma.leaveRequest.findUnique({ where: { id: req.params.id }, include: { user: true } });
-  if (!leave) return res.status(404).json({ error: 'Leave request not found' });
-
-  const updated = await prisma.leaveRequest.update({
-    where: { id: req.params.id },
-    data: {
-      status: LeaveStatus.REJECTED,
-      adminComment: comment,
-    },
-  });
-
-  await prisma.notification.create({
-    data: {
-      userId: leave.userId,
-      type: 'LEAVE',
-      title: 'Leave Request Rejected',
-      message: `Your leave request was rejected. Reason: ${comment}`,
-    },
-  });
-
-  const leaveTypeMap: Record<string, string> = {
-    PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave',
-    UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave',
-  };
-
-  res.json({
-    id: updated.id,
-    employeeId: leave.user.employeeId,
-    leaveType: leaveTypeMap[updated.type] || updated.type,
-    startDate: updated.startDate.toISOString().split('T')[0],
-    endDate: updated.endDate.toISOString().split('T')[0],
-    duration: Number(updated.days),
-    reason: updated.reason,
-    status: 'Rejected',
-    rejectionReason: comment,
-    appliedAt: updated.appliedOn.toISOString().split('T')[0],
-  });
+  try {
+    const leave = await prisma.leaveRequest.findUnique({ where: { id: req.params.id }, include: { user: true } });
+    if (!leave) return res.status(404).json({ error: 'Leave request not found' });
+    const updated = await prisma.leaveRequest.update({ where: { id: req.params.id }, data: { status: LeaveStatus.REJECTED, adminComment: comment } });
+    await prisma.notification.create({ data: { userId: leave.userId, type: 'LEAVE', title: 'Leave Request Rejected', message: `Your leave request was rejected. Reason: ${comment}` } }).catch(() => {});
+    const leaveTypeMap: Record<string, string> = { PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave', UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave' };
+    res.json({ id: updated.id, employeeId: leave.user.employeeId, leaveType: leaveTypeMap[updated.type] || updated.type, startDate: updated.startDate.toISOString().split('T')[0], endDate: updated.endDate.toISOString().split('T')[0], duration: Number(updated.days), reason: updated.reason, status: 'Rejected', rejectionReason: comment, appliedAt: updated.appliedOn.toISOString().split('T')[0] });
+  } catch {
+    const leave = store.leaveRequests.find(l => l.id === req.params.id);
+    if (!leave) return res.status(404).json({ error: 'Leave request not found' });
+    leave.status = 'Rejected'; leave.rejectionReason = comment; leave.reviewedAt = new Date().toISOString();
+    res.json({ ...leave, status: 'Rejected', rejectionReason: comment });
+  }
 });
 
 
 // ================= PAYROLL (ADMIN - from DB) =================
 app.get('/api/payroll', async (req: Request, res: Response) => {
   const { month } = req.query;
-  const isAdmin = activeSessionUser && activeSessionUser.role === 'HR_ADMIN';
+  const isAdmin = activeSessionUser && (activeSessionUser.role === 'HR_ADMIN' || activeSessionUser.role === 'HR');
 
   if (isAdmin) {
-    const where: any = {};
-    if (month) {
-      const [y, m] = (month as string).split('-');
-      where.year = parseInt(y);
-      where.month = parseInt(m);
+    try {
+      const where: any = {};
+      if (month) { const [y, m] = (month as string).split('-'); where.year = parseInt(y); where.month = parseInt(m); }
+      const payrolls = await prisma.payroll.findMany({ where, include: { user: true, items: true }, orderBy: { createdAt: 'desc' } });
+      const result = payrolls.map(p => ({
+        id: p.id,
+        employeeId: p.user.employeeId,
+        payrollMonth: `${p.year}-${String(p.month).padStart(2, '0')}`,
+        basicSalary: Number(p.grossSalary),
+        allowances: p.items.filter(i => i.category === 'EARNING' && i.name !== 'Basic Salary' && i.name !== 'Overtime Pay' && i.name !== 'Bonus').reduce((sum, i) => sum + Number(i.amount), 0),
+        bonus: Number(p.items.find(i => i.name === 'Bonus')?.amount || 0),
+        overtime: Number(p.items.find(i => i.name === 'Overtime Pay')?.amount || 0),
+        grossSalary: Number(p.grossSalary),
+        tax: Number(p.items.find(i => i.name.toLowerCase().includes('tax'))?.amount || 0),
+        pf: Number(p.items.find(i => i.name.toLowerCase().includes('pf') || i.name.toLowerCase().includes('provident'))?.amount || 0),
+        otherDeductions: p.items.filter(i => i.category === 'DEDUCTION' && !i.name.toLowerCase().includes('tax') && !i.name.toLowerCase().includes('pf') && !i.name.toLowerCase().includes('provident')).reduce((sum, i) => sum + Number(i.amount), 0),
+        totalDeductions: Number(p.totalDeductions),
+        netSalary: Number(p.netSalary),
+        status: p.paidOn ? 'Approved' : 'Draft',
+        employeeName: p.user.fullName,
+        department: p.user.department || 'Unknown'
+      }));
+      return res.json(result);
+    } catch {
+      // Store fallback - generate payroll from employees
+      const list = store.employees.map(emp => {
+        const gross = emp.baseSalary || 4500;
+        const pf = Math.round(gross * 0.08);
+        const tax = Math.round(gross * 0.12);
+        const deductions = pf + tax;
+        return { id: `PAY-${emp.id}`, employeeId: emp.employeeId, payrollMonth: month || new Date().toISOString().slice(0,7), basicSalary: gross, allowances: emp.allowances || 0, bonus: 0, overtime: 0, grossSalary: gross, tax, pf, otherDeductions: 0, totalDeductions: deductions, netSalary: gross - deductions, status: 'Draft', employeeName: `${emp.firstName} ${emp.lastName}` };
+      });
+      return res.json(list);
     }
-
-    const payrolls = await prisma.payroll.findMany({
-      where,
-      include: { user: true, items: true },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    const result = payrolls.map(p => ({
-      id: p.id,
-      employeeId: p.user.employeeId,
-      payrollMonth: `${p.year}-${String(p.month).padStart(2, '0')}`,
-      basicSalary: Number(p.grossSalary),
-      allowances: p.items.filter(i => i.category === 'EARNING' && i.name !== 'Basic Salary' && i.name !== 'Overtime Pay' && i.name !== 'Bonus').reduce((sum, i) => sum + Number(i.amount), 0),
-      bonus: Number(p.items.find(i => i.name === 'Bonus')?.amount || 0),
-      overtime: Number(p.items.find(i => i.name === 'Overtime Pay')?.amount || 0),
-      grossSalary: Number(p.grossSalary),
-      tax: Number(p.items.find(i => i.name.toLowerCase().includes('tax'))?.amount || 0),
-      pf: Number(p.items.find(i => i.name.toLowerCase().includes('pf') || i.name.toLowerCase().includes('provident'))?.amount || 0),
-      otherDeductions: p.items.filter(i => i.category === 'DEDUCTION' && !i.name.toLowerCase().includes('tax') && !i.name.toLowerCase().includes('pf') && !i.name.toLowerCase().includes('provident')).reduce((sum, i) => sum + Number(i.amount), 0),
-      totalDeductions: Number(p.totalDeductions),
-      netSalary: Number(p.netSalary),
-      status: p.paidOn ? 'Approved' : 'Draft',
-      employeeName: p.user.fullName,
-      department: p.user.department || 'Unknown',
-    }));
-
-    return res.json(result);
   }
 
   // Employee mode
-  const empId = activeSessionUser ? activeSessionUser.employeeId : 'EMP001';
-  const user = await prisma.user.findFirst({
-    where: { employeeId: empId },
-    include: {
-      salaryStructure: { include: { components: true } },
-      payrolls: { include: { items: true }, orderBy: { year: 'desc' } },
-    },
-  });
+  try {
+    const empId = activeSessionUser ? activeSessionUser.employeeId : 'EMP001';
+    const user = await prisma.user.findFirst({
+      where: { employeeId: empId },
+      include: {
+        salaryStructure: { include: { components: true } },
+        payrolls: { include: { items: true }, orderBy: { year: 'desc' } },
+      },
+    });
 
-  if (!user) return res.json({ current: null, history: [] });
+    if (!user) throw new Error('not found');
 
-  const salary = user.salaryStructure;
-  const basicVal = salary ? Number(salary.monthlyWage) : 4500;
-  const allowancesVal = 0;
-  const gross = basicVal + allowancesVal;
-  const pfVal = Math.round(basicVal * 0.08);
-  const taxVal = Math.round(gross * 0.12);
-  const totalDeductions = pfVal + taxVal;
-  const netSalary = gross - totalDeductions;
+    const salary = user.salaryStructure;
+    const basicVal = salary ? Number(salary.monthlyWage) : 4500;
+    const allowancesVal = 0;
+    const gross = basicVal + allowancesVal;
+    const pfVal = Math.round(basicVal * 0.08);
+    const taxVal = Math.round(gross * 0.12);
+    const totalDeductions = pfVal + taxVal;
+    const netSalary = gross - totalDeductions;
 
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-  const currentPayload = {
-    month: 'July 2026',
-    paidOn: '30 Jul 2026',
-    netSalary: `₹${netSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-    earnings: {
-      total: `₹${gross.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-      basic: `₹${basicVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-      house: `₹${Math.round(basicVal * 0.25).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-      conveyance: `₹${Math.round(basicVal * 0.10).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-      other: '₹0.00',
-    },
-    deductions: {
-      total: `₹${totalDeductions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-      providentFund: `₹${pfVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-      professionalTax: '₹200.00',
-      incomeTax: `₹${taxVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-      other: '₹0.00',
-    },
-  };
-
-  const historyList = user.payrolls.map(p => {
-    const pGross = Number(p.grossSalary);
-    const pTotalDed = Number(p.totalDeductions);
-    const pNet = Number(p.netSalary);
-    
-    // Summing earnings from items
-    const earningsItems = p.items.filter(i => i.category === 'EARNING');
-    const basicEarn = earningsItems.find(i => i.name === 'Basic Salary')?.amount || (pGross * 0.5); // Fallback if no items
-    const otherEarn = earningsItems.filter(i => i.name !== 'Basic Salary').reduce((s, i) => s + Number(i.amount), 0) || (pGross * 0.5);
-    
-    // Summing deductions from items
-    const dedItems = p.items.filter(i => i.category === 'DEDUCTION');
-    const pfDed = dedItems.find(i => i.name.toLowerCase().includes('pf') || i.name.toLowerCase().includes('provident'))?.amount || (pTotalDed * 0.4);
-    const taxDed = dedItems.find(i => i.name.toLowerCase().includes('tax'))?.amount || (pTotalDed * 0.6);
-    
-    return {
-      month: `${monthNames[p.month - 1]?.slice(0, 3)} ${p.year}`,
-      paidOn: p.paidOn ? new Date(p.paidOn).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Pending',
-      amount: `₹${pNet.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-      netSalary: `₹${pNet.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+    const currentPayload = {
+      month: 'July 2026',
+      paidOn: '30 Jul 2026',
+      netSalary: `₹${netSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
       earnings: {
-        total: `₹${pGross.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-        basic: `₹${Number(basicEarn).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-        other: `₹${Number(otherEarn).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        total: `₹${gross.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        basic: `₹${basicVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        house: `₹${Math.round(basicVal * 0.25).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        conveyance: `₹${Math.round(basicVal * 0.10).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        other: '₹0.00',
       },
       deductions: {
-        total: `₹${pTotalDed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-        providentFund: `₹${Number(pfDed).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-        incomeTax: `₹${Number(taxDed).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        total: `₹${totalDeductions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        providentFund: `₹${pfVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        professionalTax: '₹200.00',
+        incomeTax: `₹${taxVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
         other: '₹0.00',
-      }
+      },
     };
-  });
 
-  if (historyList.length === 0) {
-    historyList.push({ 
-      month: 'Jul 2026', 
-      amount: `₹${netSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-      ...currentPayload
+    const historyList = user.payrolls.map(p => {
+      const pGross = Number(p.grossSalary);
+      const pTotalDed = Number(p.totalDeductions);
+      const pNet = Number(p.netSalary);
+      
+      // Summing earnings from items
+      const earningsItems = p.items.filter(i => i.category === 'EARNING');
+      const basicEarn = earningsItems.find(i => i.name === 'Basic Salary')?.amount || (pGross * 0.5); // Fallback if no items
+      const otherEarn = earningsItems.filter(i => i.name !== 'Basic Salary').reduce((s, i) => s + Number(i.amount), 0) || (pGross * 0.5);
+      
+      // Summing deductions from items
+      const dedItems = p.items.filter(i => i.category === 'DEDUCTION');
+      const pfDed = dedItems.find(i => i.name.toLowerCase().includes('pf') || i.name.toLowerCase().includes('provident'))?.amount || (pTotalDed * 0.4);
+      const taxDed = dedItems.find(i => i.name.toLowerCase().includes('tax'))?.amount || (pTotalDed * 0.6);
+      
+      return {
+        month: `${monthNames[p.month - 1]?.slice(0, 3)} ${p.year}`,
+        paidOn: p.paidOn ? new Date(p.paidOn).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Pending',
+        amount: `₹${pNet.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        netSalary: `₹${pNet.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        earnings: {
+          total: `₹${pGross.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+          basic: `₹${Number(basicEarn).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+          other: `₹${Number(otherEarn).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        },
+        deductions: {
+          total: `₹${pTotalDed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+          providentFund: `₹${Number(pfDed).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+          incomeTax: `₹${Number(taxDed).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+          other: '₹0.00',
+        }
+      };
     });
-  }
 
-  res.json({ current: currentPayload, history: historyList });
+    if (historyList.length === 0) {
+      historyList.push({ 
+        month: 'Jul 2026', 
+        amount: `₹${netSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        ...currentPayload
+      });
+    }
+
+    res.json({ current: currentPayload, history: historyList });
+  } catch {
+    // Store fallback for employee payroll view
+    const empId = activeSessionUser ? activeSessionUser.employeeId : 'EMP001';
+    const emp = store.employees.find(e => e.id === empId);
+    const basicVal = emp?.baseSalary || 4500;
+    const gross = basicVal;
+    const pfVal = Math.round(basicVal * 0.08);
+    const taxVal = Math.round(gross * 0.12);
+    const totalDeductions = pfVal + taxVal;
+    const netSalary = gross - totalDeductions;
+    const currentPayload = {
+      month: 'July 2026',
+      paidOn: '30 Jul 2026',
+      netSalary: `₹${netSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+      earnings: {
+        total: `₹${gross.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        basic: `₹${basicVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        house: `₹${Math.round(basicVal * 0.25).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        conveyance: `₹${Math.round(basicVal * 0.10).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        other: '₹0.00',
+      },
+      deductions: {
+        total: `₹${totalDeductions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        providentFund: `₹${pfVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        professionalTax: '₹200.00',
+        incomeTax: `₹${taxVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        other: '₹0.00',
+      },
+    };
+    const historyList: any[] = [];
+    if (historyList.length === 0) {
+      historyList.push({ month: 'Jul 2026', amount: `₹${netSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, ...currentPayload });
+    }
+    res.json({ current: currentPayload, history: historyList });
+  }
 });
 
 app.post('/api/payroll/generate', requireAdmin, async (req: Request, res: Response) => {
@@ -1132,90 +1118,70 @@ app.put('/api/payroll/:id/approve', requireAdmin, async (req: Request, res: Resp
 
 // ================= REPORTS (ADMIN - from DB) =================
 app.get('/api/reports/overview', async (req: Request, res: Response) => {
-  const totalEmployees = await prisma.user.count();
-
-  const attendance = await prisma.attendance.findMany();
-  const uniqueDays = [...new Set(attendance.map(a => a.date.toISOString().split('T')[0]))];
-  let attendanceSum = 0;
-  uniqueDays.forEach(d => {
-    const present = attendance.filter(a => a.date.toISOString().split('T')[0] === d && (a.status === 'PRESENT' || a.status === 'HALF_DAY')).length;
-    attendanceSum += (present / totalEmployees) * 100;
-  });
-  const avgAttendance = uniqueDays.length > 0 ? Math.round(attendanceSum / uniqueDays.length) : 95;
-
-  const approvedLeaves = await prisma.leaveRequest.findMany({ where: { status: 'APPROVED' } });
-  const totalLeaves = approvedLeaves.reduce((sum, l) => sum + Number(l.days), 0);
-
-  const payrolls = await prisma.payroll.findMany({ where: { month: 7, year: 2026 } });
-  const payrollCost = payrolls.reduce((sum, p) => sum + Number(p.netSalary), 0);
-
-  res.json({
-    kpis: {
-      totalEmployees,
-      avgAttendance: `${avgAttendance}%`,
-      totalLeaves,
-      payrollThisMonth: `₹${payrollCost.toLocaleString('en-IN')}`,
-      overtimeHours: '32h 15m',
-    },
-  });
+  try {
+    const totalEmployees = await prisma.user.count();
+    const attendance = await prisma.attendance.findMany();
+    const uniqueDays = [...new Set(attendance.map(a => a.date.toISOString().split('T')[0]))];
+    let attendanceSum = 0;
+    uniqueDays.forEach(d => { const present = attendance.filter(a => a.date.toISOString().split('T')[0] === d && (a.status === 'PRESENT' || a.status === 'HALF_DAY')).length; attendanceSum += (present / totalEmployees) * 100; });
+    const avgAttendance = uniqueDays.length > 0 ? Math.round(attendanceSum / uniqueDays.length) : 95;
+    const approvedLeaves = await prisma.leaveRequest.findMany({ where: { status: 'APPROVED' } });
+    const totalLeaves = approvedLeaves.reduce((sum, l) => sum + Number(l.days), 0);
+    const payrolls = await prisma.payroll.findMany({ where: { month: 7, year: 2026 } });
+    const payrollCost = payrolls.reduce((sum, p) => sum + Number(p.netSalary), 0);
+    res.json({ kpis: { totalEmployees, avgAttendance: `${avgAttendance}%`, totalLeaves, payrollThisMonth: `₹${payrollCost.toLocaleString('en-IN')}`, overtimeHours: '32h 15m' } });
+  } catch {
+    const totalEmployees = store.employees.filter(e => e.status !== 'Inactive').length;
+    const totalLeaves = store.leaveRequests.filter(l => l.status === 'Approved').length;
+    const payrollCost = store.employees.reduce((sum, e) => sum + (e.baseSalary || 4500), 0);
+    res.json({ kpis: { totalEmployees, avgAttendance: '94%', totalLeaves, payrollThisMonth: `₹${payrollCost.toLocaleString('en-IN')}`, overtimeHours: '32h 15m' } });
+  }
 });
 
 app.get('/api/reports/attendance', async (req: Request, res: Response) => {
-  const totalEmployees = await prisma.user.count();
-  const attendance = await prisma.attendance.findMany({ orderBy: { date: 'asc' } });
-
-  const uniqueDays = [...new Set(attendance.map(a => a.date.toISOString().split('T')[0]))].sort().slice(-5);
-
-  const trend = uniqueDays.map(d => {
-    const present = attendance.filter(a => a.date.toISOString().split('T')[0] === d && (a.status === 'PRESENT' || a.status === 'HALF_DAY')).length;
-    return {
-      name: d.split('-').slice(1).reverse().join(' '),
-      value: Math.round((present / totalEmployees) * 100),
-    };
-  });
-
-  res.json(trend);
+  try {
+    const totalEmployees = await prisma.user.count();
+    const attendance = await prisma.attendance.findMany({ orderBy: { date: 'asc' } });
+    const uniqueDays = [...new Set(attendance.map(a => a.date.toISOString().split('T')[0]))].sort().slice(-5);
+    const trend = uniqueDays.map(d => { const present = attendance.filter(a => a.date.toISOString().split('T')[0] === d && (a.status === 'PRESENT' || a.status === 'HALF_DAY')).length; return { name: d.split('-').slice(1).reverse().join(' '), value: Math.round((present / totalEmployees) * 100) }; });
+    res.json(trend);
+  } catch {
+    const days = Object.keys(store.attendance.reduce((acc: any, a) => { acc[a.date] = true; return acc; }, {})).sort().slice(-5);
+    const emp = store.employees.filter(e => e.status !== 'Inactive').length;
+    const trend = days.map(d => { const present = store.attendance.filter(a => a.date === d && (a.status === 'Present' || a.status === 'Half Day')).length; return { name: d.split('-').slice(1).reverse().join(' '), value: emp > 0 ? Math.round((present / emp) * 100) : 90 }; });
+    if (trend.length === 0) trend.push({ name: 'Today', value: 90 });
+    res.json(trend);
+  }
 });
 
 app.get('/api/reports/leaves', async (req: Request, res: Response) => {
-  const approved = await prisma.leaveRequest.findMany({ where: { status: 'APPROVED' } });
-
-  const counts: Record<string, number> = { 'Paid Time Off': 0, 'Sick Leave': 0, 'Unpaid Leave': 0, 'Casual Leave': 0 };
-  const typeMap: Record<string, string> = {
-    PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave',
-    UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave',
-  };
-
-  approved.forEach(l => {
-    const name = typeMap[l.type] || 'Other';
-    if (counts[name] !== undefined) counts[name] += Number(l.days);
-  });
-
-  res.json(Object.entries(counts).map(([name, value]) => ({ name, value })));
+  try {
+    const approved = await prisma.leaveRequest.findMany({ where: { status: 'APPROVED' } });
+    const counts: Record<string, number> = { 'Paid Time Off': 0, 'Sick Leave': 0, 'Unpaid Leave': 0, 'Casual Leave': 0 };
+    const typeMap: Record<string, string> = { PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave', UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave' };
+    approved.forEach(l => { const name = typeMap[l.type] || 'Other'; if (counts[name] !== undefined) counts[name] += Number(l.days); });
+    res.json(Object.entries(counts).map(([name, value]) => ({ name, value })));
+  } catch {
+    const counts: Record<string, number> = { 'Paid Time Off': 0, 'Sick Leave': 0, 'Unpaid Leave': 0, 'Casual Leave': 0 };
+    store.leaveRequests.filter(l => l.status === 'Approved').forEach(l => { const name = l.leaveType; if (counts[name] !== undefined) counts[name] += l.duration; });
+    res.json(Object.entries(counts).map(([name, value]) => ({ name, value })));
+  }
 });
 
 app.get('/api/reports/payroll', async (req: Request, res: Response) => {
-  const users = await prisma.user.findMany();
-  const payrolls = await prisma.payroll.findMany({ where: { month: 7, year: 2026 } });
-
-  const departments = [...new Set(users.map(u => u.department).filter(Boolean))];
-  const colors = ['#7FAF3F', '#E5A83B', '#E56B65', '#7A70C7', '#67AFA5'];
-
-  const breakdown = departments.map((dept, i) => {
-    const deptUsers = users.filter(u => u.department === dept);
-    const totalPayroll = payrolls
-      .filter(p => deptUsers.some(u => u.id === p.userId))
-      .reduce((sum, p) => sum + Number(p.netSalary), 0);
-
-    return {
-      name: dept,
-      value: deptUsers.length,
-      payroll: totalPayroll,
-      color: colors[i % colors.length],
-    };
-  });
-
-  res.json(breakdown);
+  try {
+    const users = await prisma.user.findMany();
+    const payrolls = await prisma.payroll.findMany({ where: { month: 7, year: 2026 } });
+    const departments = [...new Set(users.map(u => u.department).filter(Boolean))];
+    const colors = ['#7FAF3F', '#E5A83B', '#E56B65', '#7A70C7', '#67AFA5'];
+    const breakdown = departments.map((dept, i) => { const deptUsers = users.filter(u => u.department === dept); const totalPayroll = payrolls.filter(p => deptUsers.some(u => u.id === p.userId)).reduce((sum, p) => sum + Number(p.netSalary), 0); return { name: dept, value: deptUsers.length, payroll: totalPayroll, color: colors[i % colors.length] }; });
+    res.json(breakdown);
+  } catch {
+    const colors = ['#7FAF3F', '#E5A83B', '#E56B65', '#7A70C7', '#67AFA5'];
+    const deptMap: Record<string, any> = {};
+    store.employees.forEach(e => { const dept = store.departments.find(d => d.id === e.departmentId)?.name || 'Unknown'; if (!deptMap[dept]) deptMap[dept] = { name: dept, value: 0, payroll: 0 }; deptMap[dept].value++; deptMap[dept].payroll += (e.baseSalary || 4500) * 0.8; });
+    res.json(Object.values(deptMap).map((d, i) => ({ ...d, color: colors[i % colors.length] })));
+  }
 });
 
 

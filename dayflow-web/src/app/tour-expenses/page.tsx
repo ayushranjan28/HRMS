@@ -474,9 +474,9 @@ function TourExpensesContent() {
                               <td className="p-4 flex items-center gap-3">
                                 <div 
                                   className="w-10 h-10 bg-gray-100 rounded-lg overflow-hidden border border-gray-200 cursor-pointer flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors"
-                                  onClick={() => setZoomBill({ name: bill.original_file_name, base64: '', fileUrl: `http://localhost:8080/uploads/${bill.bill_file}` })}
+                                  onClick={() => setZoomBill({ name: bill.original_file_name, base64: '', fileUrl: `http://localhost:8081/uploads/${bill.bill_file}` })}
                                 >
-                                  {bill.bill_file.endsWith('.pdf') ? <FileText size={16} /> : <img src={`http://localhost:8080/uploads/${bill.bill_file}`} className="w-full h-full object-cover" />}
+                                  {bill.bill_file.endsWith('.pdf') ? <FileText size={16} /> : <img src={`http://localhost:8081/uploads/${bill.bill_file}`} className="w-full h-full object-cover" />}
                                 </div>
                                 <span className="font-semibold truncate max-w-[200px]" title={bill.original_file_name}>
                                   Bill {idx + 1} ({bill.original_file_name})
