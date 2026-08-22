@@ -523,14 +523,13 @@ app.post('/api/attendance', async (req: Request, res: Response) => {
 
 app.get('/api/attendance/today', async (req: Request, res: Response) => {
   if (!activeSessionUser) return res.status(401).json({ error: 'Unauthorized' });
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+  const now = new Date();
+  const todayUTC = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  const tomorrowUTC = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate() + 1));
   const record = await prisma.attendance.findFirst({
     where: {
       userId: activeSessionUser.id,
-      date: { gte: today, lt: tomorrow },
+      date: { gte: todayUTC, lt: tomorrowUTC },
     },
   });
   res.json({ record });
@@ -540,13 +539,12 @@ app.post('/api/attendance/mark', async (req: Request, res: Response) => {
   if (!activeSessionUser) return res.status(401).json({ error: 'Unauthorized' });
   const { type, location } = req.body; // type = 'checkin' or 'checkout'
   
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+  const now = new Date();
+  const todayUTC = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  const tomorrowUTC = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate() + 1));
   
   let record = await prisma.attendance.findFirst({
-    where: { userId: activeSessionUser.id, date: { gte: today, lt: tomorrow } },
+    where: { userId: activeSessionUser.id, date: { gte: todayUTC, lt: tomorrowUTC } },
   });
 
   if (type === 'checkin') {
@@ -554,7 +552,7 @@ app.post('/api/attendance/mark', async (req: Request, res: Response) => {
     record = await prisma.attendance.create({
       data: {
         userId: activeSessionUser.id,
-        date: new Date(),
+        date: todayUTC,
         checkIn: new Date(),
         status: AttendanceStatus.PRESENT,
       },
