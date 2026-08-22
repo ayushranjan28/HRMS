@@ -386,6 +386,14 @@ app.put('/api/employees/:id', requireAdmin, async (req: Request, res: Response) 
       ...(designationId ? { jobTitle: designationId } : {}),
       ...(workLocation ? { location: workLocation } : {}),
       ...(profilePhoto ? { avatarUrl: profilePhoto } : {}),
+      ...(baseSalary !== undefined ? {
+        salaryStructure: {
+          upsert: {
+            create: { monthlyWage: Number(baseSalary), yearlyWage: Number(baseSalary) * 12 },
+            update: { monthlyWage: Number(baseSalary), yearlyWage: Number(baseSalary) * 12 }
+          }
+        }
+      } : {}),
     },
     include: { privateInfo: true, salaryStructure: true },
   });
@@ -950,13 +958,46 @@ app.get('/api/payroll', async (req: Request, res: Response) => {
     },
   };
 
-  const historyList = user.payrolls.map(p => ({
-    month: `${monthNames[p.month - 1]?.slice(0, 3)} ${p.year}`,
-    amount: `₹${Number(p.netSalary).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-  }));
+  const historyList = user.payrolls.map(p => {
+    const pGross = Number(p.grossSalary);
+    const pTotalDed = Number(p.totalDeductions);
+    const pNet = Number(p.netSalary);
+    
+    // Summing earnings from items
+    const earningsItems = p.items.filter(i => i.category === 'EARNING');
+    const basicEarn = earningsItems.find(i => i.name === 'Basic Salary')?.amount || (pGross * 0.5); // Fallback if no items
+    const otherEarn = earningsItems.filter(i => i.name !== 'Basic Salary').reduce((s, i) => s + Number(i.amount), 0) || (pGross * 0.5);
+    
+    // Summing deductions from items
+    const dedItems = p.items.filter(i => i.category === 'DEDUCTION');
+    const pfDed = dedItems.find(i => i.name.toLowerCase().includes('pf') || i.name.toLowerCase().includes('provident'))?.amount || (pTotalDed * 0.4);
+    const taxDed = dedItems.find(i => i.name.toLowerCase().includes('tax'))?.amount || (pTotalDed * 0.6);
+    
+    return {
+      month: `${monthNames[p.month - 1]?.slice(0, 3)} ${p.year}`,
+      paidOn: p.paidOn ? new Date(p.paidOn).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Pending',
+      amount: `₹${pNet.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+      netSalary: `₹${pNet.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+      earnings: {
+        total: `₹${pGross.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        basic: `₹${Number(basicEarn).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        other: `₹${Number(otherEarn).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+      },
+      deductions: {
+        total: `₹${pTotalDed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        providentFund: `₹${Number(pfDed).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        incomeTax: `₹${Number(taxDed).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+        other: '₹0.00',
+      }
+    };
+  });
 
   if (historyList.length === 0) {
-    historyList.push({ month: 'Jul 2026', amount: `₹${netSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` });
+    historyList.push({ 
+      month: 'Jul 2026', 
+      amount: `₹${netSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+      ...currentPayload
+    });
   }
 
   res.json({ current: currentPayload, history: historyList });

@@ -8,41 +8,16 @@ import { getPayrollData } from '@/services/api';
 export default function PayrollPage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedRecord, setSelectedRecord] = useState<any>(null);
 
   useEffect(() => {
     async function loadData() {
       try {
         const result = await getPayrollData();
         
-        // Transform the backend array response to the expected structure
-        if (Array.isArray(result) && result.length > 0) {
-          const latest = result[0];
-          const transformedData = {
-            current: {
-              month: latest.payrollMonth || 'Current Month',
-              paidOn: latest.status === 'Paid' ? 'Recent' : 'Pending',
-              netSalary: `₹${(latest.netSalary || 0).toLocaleString('en-IN')}`,
-              earnings: {
-                total: `₹${(latest.grossSalary || 0).toLocaleString('en-IN')}`,
-                basic: `₹${(latest.basicSalary || 0).toLocaleString('en-IN')}`,
-                house: `₹${(latest.allowances * 0.4 || 0).toLocaleString('en-IN')}`,
-                conveyance: `₹${(latest.allowances * 0.3 || 0).toLocaleString('en-IN')}`,
-                other: `₹${(latest.bonus + latest.overtime || 0).toLocaleString('en-IN')}`
-              },
-              deductions: {
-                total: `₹${(latest.totalDeductions || 0).toLocaleString('en-IN')}`,
-                providentFund: `₹${(latest.pf || 0).toLocaleString('en-IN')}`,
-                professionalTax: `₹200`,
-                incomeTax: `₹${(latest.tax || 0).toLocaleString('en-IN')}`,
-                other: `₹${(latest.otherDeductions || 0).toLocaleString('en-IN')}`
-              }
-            },
-            history: result.map(r => ({
-              month: r.payrollMonth,
-              amount: `₹${(r.netSalary || 0).toLocaleString('en-IN')}`
-            }))
-          };
-          setData(transformedData);
+        // The backend returns { current, history } for employees
+        if (result && result.current && Array.isArray(result.history)) {
+          setData(result);
         } else {
           // Fallback mock data if API returns empty array or different structure
           setData({
@@ -74,13 +49,18 @@ export default function PayrollPage() {
 
   if (!data) return null;
 
+  const activeRecord = selectedRecord || data.current;
+
   return (
     <div className="flex flex-col gap-6 w-full max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-[28px] font-semibold text-[#2D3032]">Payroll – My Payslip</h1>
-        <button className="flex items-center gap-2 bg-white border border-[#E6E3DE] rounded-lg px-4 py-2 text-xs font-medium text-[#2D3032] hover:bg-[#F7F5F1] transition-colors shadow-sm">
-          <Download className="w-4 h-4" /> Download Payslip
+        <button 
+          onClick={() => setSelectedRecord(null)}
+          className={`text-xs font-medium px-4 py-1.5 rounded-lg transition-colors ${!selectedRecord ? 'bg-[#7FAF3F] text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+        >
+          View Current Month
         </button>
       </div>
 
@@ -88,10 +68,10 @@ export default function PayrollPage() {
         {/* Main Salary Card */}
         <div className="col-span-12 lg:col-span-4 bg-white rounded-2xl p-8 border border-[#E6E3DE] shadow-sm flex flex-col justify-between min-h-[300px]">
           <div>
-            <div className="text-sm font-semibold text-[#777A7C] mb-1">{data.current.month}</div>
-            <div className="text-xs font-medium text-[#9A9C9D] mb-6">Paid on {data.current.paidOn}</div>
+            <div className="text-sm font-semibold text-[#777A7C] mb-1">{activeRecord.month}</div>
+            <div className="text-xs font-medium text-[#9A9C9D] mb-6">Paid on {activeRecord.paidOn}</div>
             <div className="text-[13px] font-medium text-[#777A7C] mb-1">Net Salary</div>
-            <div className="text-4xl font-bold text-[#2D3032] tracking-tight">{data.current.netSalary}</div>
+            <div className="text-4xl font-bold text-[#2D3032] tracking-tight">{activeRecord.netSalary}</div>
           </div>
           <div className="self-end w-16 h-16 rounded-2xl bg-[#7A70C7]/10 flex items-center justify-center text-[#7A70C7]">
             <Wallet className="w-8 h-8" strokeWidth={1.5} />
@@ -103,29 +83,29 @@ export default function PayrollPage() {
           {/* Earnings */}
           <div className="bg-white rounded-2xl p-6 border border-[#E6E3DE] shadow-sm flex flex-col">
             <h3 className="text-xs font-semibold text-[#777A7C] mb-1 uppercase tracking-wider">Earnings</h3>
-            <div className="text-2xl font-bold text-[#2D3032] mb-6">{data.current.earnings.total}</div>
+            <div className="text-2xl font-bold text-[#2D3032] mb-6">{activeRecord.earnings.total}</div>
             
             <div className="space-y-4 text-sm mt-auto">
               <div className="flex justify-between items-center">
                 <span className="text-[#777A7C] font-medium">Basic Salary</span>
-                <span className="font-semibold text-[#2D3032]">{data.current.earnings.basic}</span>
+                <span className="font-semibold text-[#2D3032]">{activeRecord.earnings.basic}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-[#777A7C] font-medium">House Allowance</span>
-                <span className="font-semibold text-[#2D3032]">{data.current.earnings.house}</span>
+                <span className="font-semibold text-[#2D3032]">{activeRecord.earnings.house || '₹0.00'}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-[#777A7C] font-medium">Conveyance</span>
-                <span className="font-semibold text-[#2D3032]">{data.current.earnings.conveyance}</span>
+                <span className="font-semibold text-[#2D3032]">{activeRecord.earnings.conveyance || '₹0.00'}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-[#777A7C] font-medium">Other Allowances</span>
-                <span className="font-semibold text-[#2D3032]">{data.current.earnings.other}</span>
+                <span className="font-semibold text-[#2D3032]">{activeRecord.earnings.other}</span>
               </div>
-              {data.current.earnings.tourReimbursement && (
+              {activeRecord.earnings.tourReimbursement && (
                 <div className="flex justify-between items-center bg-[#B5F12C]/10 p-2.5 rounded-lg border border-[#B5F12C]/20 mt-1">
                   <span className="text-brand-green font-bold">Tour Reimbursement</span>
-                  <span className="font-extrabold text-[#151413]">{data.current.earnings.tourReimbursement}</span>
+                  <span className="font-extrabold text-[#151413]">{activeRecord.earnings.tourReimbursement}</span>
                 </div>
               )}
             </div>
@@ -134,24 +114,24 @@ export default function PayrollPage() {
           {/* Deductions */}
           <div className="bg-white rounded-2xl p-6 border border-[#E6E3DE] shadow-sm flex flex-col">
             <h3 className="text-xs font-semibold text-[#777A7C] mb-1 uppercase tracking-wider">Deductions</h3>
-            <div className="text-2xl font-bold text-[#E56B65] mb-6">{data.current.deductions.total}</div>
+            <div className="text-2xl font-bold text-[#E56B65] mb-6">{activeRecord.deductions.total}</div>
             
             <div className="space-y-4 text-sm mt-auto">
               <div className="flex justify-between items-center">
                 <span className="text-[#777A7C] font-medium">Provident Fund</span>
-                <span className="font-semibold text-[#2D3032]">{data.current.deductions.providentFund}</span>
+                <span className="font-semibold text-[#2D3032]">{activeRecord.deductions.providentFund}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-[#777A7C] font-medium">Professional Tax</span>
-                <span className="font-semibold text-[#2D3032]">{data.current.deductions.professionalTax}</span>
+                <span className="font-semibold text-[#2D3032]">{activeRecord.deductions.professionalTax || '₹200.00'}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-[#777A7C] font-medium">Income Tax</span>
-                <span className="font-semibold text-[#2D3032]">{data.current.deductions.incomeTax}</span>
+                <span className="font-semibold text-[#2D3032]">{activeRecord.deductions.incomeTax}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-[#777A7C] font-medium">Other Deductions</span>
-                <span className="font-semibold text-[#2D3032]">{data.current.deductions.other}</span>
+                <span className="font-semibold text-[#2D3032]">{activeRecord.deductions.other}</span>
               </div>
             </div>
           </div>
@@ -167,10 +147,14 @@ export default function PayrollPage() {
 
         <div className="grid grid-cols-5 gap-4">
           {data.history.map((record: any, i: number) => (
-            <div key={i} className="flex flex-col items-center justify-center p-5 rounded-xl border border-[#E6E3DE] hover:border-[#7FAF3F] transition-colors group">
+            <div 
+              key={i} 
+              onClick={() => setSelectedRecord(record)}
+              className={`flex flex-col items-center justify-center p-5 rounded-xl border transition-colors group cursor-pointer ${selectedRecord?.month === record.month ? 'border-[#7FAF3F] bg-[#7FAF3F]/5' : 'border-[#E6E3DE] hover:border-[#7FAF3F]'}`}
+            >
               <div className="text-xs font-medium text-[#777A7C] mb-2">{record.month}</div>
               <div className="text-lg font-bold text-[#2D3032] mb-4">{record.amount}</div>
-              <button className="text-xs font-semibold text-[#7FAF3F] bg-[#7FAF3F]/10 px-4 py-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity">
+              <button className={`text-xs font-semibold px-4 py-1.5 rounded-md transition-opacity ${selectedRecord?.month === record.month ? 'text-[#7FAF3F] bg-[#7FAF3F]/10 opacity-100' : 'text-[#7FAF3F] bg-[#7FAF3F]/10 opacity-0 group-hover:opacity-100'}`}>
                 View
               </button>
             </div>
