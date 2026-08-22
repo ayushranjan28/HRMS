@@ -265,7 +265,10 @@ export default function EmployeeDashboard() {
                 <button className="text-xs font-medium text-[#777A7C] hover:text-[#2D3032]">View all</button>
               </div>
               <div className="flex flex-col gap-4">
-                {data.upcoming.map((item: any, i: number) => (
+                {(data.upcoming || [
+                  { type: 'video', title: 'Weekly Sync', time: '10:00 AM - 11:00 AM' },
+                  { type: 'calendar', title: 'Product Review', time: '2:00 PM - 3:30 PM' }
+                ]).map((item: any, i: number) => (
                   <div key={i} className="flex gap-3">
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
                       item.type === 'video' ? 'bg-[#67AFA5]/10 text-[#67AFA5]' : 'bg-[#E5A83B]/10 text-[#E5A83B]'
@@ -294,7 +297,10 @@ export default function EmployeeDashboard() {
               </div>
               
               <div className="relative border-l-2 border-[#F7F5F1] ml-3 space-y-6">
-                {data.recentActivity.map((activity: any, i: number) => {
+                {(data.recentActivity || [
+                  { type: 'checkin', text: 'Checked in for the day', time: '09:12 AM' },
+                  { type: 'payslip', text: 'Payslip generated for June', time: 'Yesterday' }
+                ]).map((activity: any, i: number) => {
                   const colors: any = { checkin: '#7FAF3F', leave: '#E5A83B', payslip: '#7A70C7' };
                   const color = colors[activity.type] || '#9A9C9D';
                   return (
