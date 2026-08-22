@@ -1,0 +1,144 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// ENUMS
+// -----------------------------------------------------------------------------
+enum Role {
+  EMPLOYEE
+  HR_ADMIN
+}
+
+enum AttendanceStatus {
+  PRESENT
+  HALF_DAY
+  ABSENT
+  LEAVE
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum LeaveType {
+  PAID_TIME_OFF
+  SICK_LEAVE
+  UNPAID_LEAVE
+  COMP_OFF
+}
+
+// -----------------------------------------------------------------------------
+// MODELS
+// -----------------------------------------------------------------------------
+
+model User {
+  id             String         @id @default(uuid())
+  employeeId     String         @unique
+  fullName       String
+  email          String         @unique
+  passwordHash   String         // Hashed password
+  role           Role           @default(EMPLOYEE)
+  department     String?
+  jobTitle       String?
+  location       String?
+  avatarUrl      String?
+  
+  // Relations
+  attendance     Attendance[]
+  leaveRequests  LeaveRequest[]
+  payrolls       Payroll[]
+  leaveBalances  LeaveBalance[]
+
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model Attendance {
+  id           String           @id @default(uuid())
+  userId       String
+  user         User             @relation(fields: [userId], references: [id])
+  
+  date         DateTime         @db.Date
+  checkIn      DateTime?
+  checkOut     DateTime?
+  status       AttendanceStatus
+  workHours    Float            @default(0.0) // E.g., 9.0
+  extraHours   Float            @default(0.0)
+
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@unique([userId, date]) // An employee has only one attendance record per day
+}
+
+model LeaveRequest {
+  id           String       @id @default(uuid())
+  userId       String
+  user         User         @relation(fields: [userId], references: [id])
+  
+  type         LeaveType
+  startDate    DateTime     @db.Date
+  endDate      DateTime     @db.Date
+  days         Float        // E.g., 1.0, 0.5
+  reason       String
+  status       LeaveStatus  @default(PENDING)
+  attachmentUrl String?
+  adminComment String?
+
+  appliedOn    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model LeaveBalance {
+  id           String       @id @default(uuid())
+  userId       String
+  user         User         @relation(fields: [userId], references: [id])
+  
+  type         LeaveType
+  totalDays    Float
+  usedDays     Float        @default(0.0)
+  
+  year         Int          // To track balances per calendar year
+
+  @@unique([userId, type, year])
+}
+
+model Payroll {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id])
+  
+  month             Int       // 1 - 12
+  year              Int
+  
+  // Earnings
+  basic             Float     @default(0.0)
+  houseAllowance    Float     @default(0.0)
+  conveyance        Float     @default(0.0)
+  otherAllowances   Float     @default(0.0)
+  
+  // Deductions
+  providentFund     Float     @default(0.0)
+  professionalTax   Float     @default(0.0)
+  incomeTax         Float     @default(0.0)
+  otherDeductions   Float     @default(0.0)
+  
+  netSalary         Float
+  paidOn            DateTime? @db.Date
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([userId, month, year])
+}
