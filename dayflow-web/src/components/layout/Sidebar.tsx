@@ -55,13 +55,7 @@ export function Sidebar() {
   }, []);
 
   const handleRoleSwitch = async () => {
-    try {
-      const data = await api.switchRole();
-      setRole(data.user.role);
-      window.location.href = data.user.role === 'HR' ? '/admin' : '/';
-    } catch (e) {
-      console.error('Error switching role:', e);
-    }
+    // Deprecated: Admins now see all features in the sidebar simultaneously
   };
 
   const handleLogout = async () => {
@@ -90,17 +84,12 @@ export function Sidebar() {
       
       <div className="flex flex-1 flex-col overflow-y-auto px-4 py-2 space-y-1">
         <nav className="flex-1 space-y-1.5">
-          {role === 'HR' ? (
-            <div className="mb-4 px-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
-              {isAdminView ? 'Admin Portal' : 'Employee Portal'}
-            </div>
-          ) : (
-            <div className="mb-4 px-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
-              Employee Portal
-            </div>
-          )}
-          {(role === 'HR' && isAdminView ? adminNav : employeeNav).map((item) => {
-            const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
+          {/* Employee Portal Navigation (Visible to Everyone) */}
+          <div className="mb-2 mt-4 px-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+            Employee Portal
+          </div>
+          {employeeNav.map((item) => {
+            const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href) && !pathname.startsWith('/admin'));
             const Icon = item.icon;
             return (
               <Link
@@ -118,29 +107,39 @@ export function Sidebar() {
               </Link>
             );
           })}
+
+          {/* Admin Portal Navigation (Visible to HR/Admin only) */}
+          {(role === 'HR' || role === 'Admin') && (
+            <>
+              <div className="mb-2 mt-6 px-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                Admin Portal
+              </div>
+              {adminNav.map((item) => {
+                const isActive = pathname === item.href || pathname.startsWith(item.href + '/') || (pathname === '/reports' && item.href === '/reports');
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    className={cn(
+                      'group flex items-center gap-3.5 rounded-2xl px-4 py-3.5 text-[15px] font-medium transition-all duration-200',
+                      isActive
+                        ? 'bg-sidebar-active text-white shadow-sm'
+                        : 'text-gray-400 hover:bg-sidebar-hover hover:text-white'
+                    )}
+                  >
+                    <Icon className={cn("h-5 w-5", isActive ? "text-white" : "text-gray-400 group-hover:text-white transition-colors")} strokeWidth={isActive ? 2.5 : 2} />
+                    {item.name}
+                  </Link>
+                );
+              })}
+            </>
+          )}
         </nav>
       </div>
       
       <div className="p-4 pb-8 space-y-1">
-        {/* Switch Buttons for HR Admins to view both sides */}
-        {role === 'HR' && (
-          <button 
-            onClick={handleRoleSwitch}
-            className="flex w-full items-center gap-3.5 rounded-2xl px-4 py-3 text-[15px] font-medium text-gray-400 hover:bg-sidebar-hover hover:text-white transition-all border border-transparent hover:border-gray-600 mb-2 cursor-pointer"
-          >
-            {isAdminView ? (
-              <>
-                <User className="h-5 w-5" />
-                Switch to Employee
-              </>
-            ) : (
-              <>
-                <Users className="h-5 w-5" />
-                Switch to Admin
-              </>
-            )}
-          </button>
-        )}
+        {/* The switch button is now removed as both views are visible */}
         
         <button 
           onClick={() => window.location.href = '/admin/settings'}
