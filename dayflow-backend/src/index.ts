@@ -1,8 +1,10 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { compareSync } from 'bcryptjs';
+import { compareSync, hashSync } from 'bcryptjs';
 import path from 'path';
+import prisma from './prisma';
+import { Role, LeaveStatus, LeaveType, AttendanceStatus } from '@prisma/client';
 import * as store from './store';
 import { db, saveBase64File, ExpenseClaim, ExpenseCategory, ExpenseBill } from './db';
 
@@ -18,99 +20,175 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Serve uploaded bill files statically
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
+// Active session tracking (kept in-memory for session management)
+let activeSessionUser: any = null;
+
 // Middleware to check admin role
 function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  if (store.activeSessionUser && store.activeSessionUser.role === 'HR') {
+  if (activeSessionUser && activeSessionUser.role === 'HR_ADMIN') {
     next();
   } else {
     res.status(403).json({ error: 'Unauthorized. Admin role required.' });
   }
 }
 
+// Helper: convert DB user to frontend-expected employee format
+function userToEmployee(user: any) {
+  const names = user.fullName.split(' ');
+  const firstName = names[0] || '';
+  const lastName = names.slice(1).join(' ') || '';
+  return {
+    id: user.employeeId,
+    employeeId: user.employeeId,
+    firstName,
+    lastName,
+    email: user.email,
+    phone: user.privateInfo?.personalEmail || '',
+    dateOfBirth: user.privateInfo?.dateOfBirth?.toISOString().split('T')[0] || '',
+    gender: user.privateInfo?.gender || '',
+    address: user.privateInfo?.residingAddress || '',
+    city: '',
+    state: '',
+    country: user.privateInfo?.nationality || '',
+    departmentId: user.department || '',
+    designationId: user.jobTitle || '',
+    managerId: '',
+    joiningDate: user.privateInfo?.dateOfJoining?.toISOString().split('T')[0] || '',
+    employmentType: 'Full Time',
+    workLocation: user.location || '',
+    status: 'Active',
+    profilePhoto: user.avatarUrl || 'https://i.pravatar.cc/150',
+    baseSalary: Number(user.salaryStructure?.monthlyWage || 0),
+    hra: 0,
+    allowances: 0,
+    role: user.role === 'HR_ADMIN' ? 'HR' : 'Employee',
+    createdAt: user.createdAt?.toISOString() || '',
+    _dbId: user.id, // internal DB UUID
+  };
+}
+
+// Helper: convert DB user to frontend-expected user format
+function userToAuthUser(user: any) {
+  return {
+    id: user.id,
+    username: user.fullName.split(' ')[0]?.toLowerCase() || '',
+    email: user.email,
+    role: user.role === 'HR_ADMIN' ? 'HR' : 'Employee',
+    employeeId: user.employeeId,
+    createdAt: user.createdAt?.toISOString() || '',
+  };
+}
+
 app.get('/api/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok', message: 'Dayflow API is running' });
+  res.json({ status: 'ok', message: 'Dayflow API is running (PostgreSQL)' });
 });
 
-app.get('/api/dashboard', (req: Request, res: Response) => {
+app.get('/api/dashboard', async (req: Request, res: Response) => {
+  const totalEmployees = await prisma.user.count();
+  const attendanceRecords = await prisma.attendance.findMany({
+    orderBy: { date: 'desc' },
+    take: 200,
+  });
+
+  // Group by date for last 5 days
+  const dateMap: Record<string, { Present: number; 'Half-day': number; Absent: number; Leave: number }> = {};
+  for (const a of attendanceRecords) {
+    const d = a.date.toISOString().split('T')[0];
+    if (!dateMap[d]) dateMap[d] = { Present: 0, 'Half-day': 0, Absent: 0, Leave: 0 };
+    if (a.status === 'PRESENT') dateMap[d].Present++;
+    else if (a.status === 'HALF_DAY') dateMap[d]['Half-day']++;
+    else if (a.status === 'ABSENT') dateMap[d].Absent++;
+    else if (a.status === 'LEAVE') dateMap[d].Leave++;
+  }
+
+  const days = Object.keys(dateMap).sort().slice(-5);
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
   res.json({
     kpis: {
       hours: '38h 15m',
       leavesAvailable: 18,
-      nextHoliday: 4
+      nextHoliday: 4,
     },
-    attendanceOverview: [
-      { name: 'Mon', Present: 22, 'Half-day': 2, Absent: 1, Leave: 1 },
-      { name: 'Tue', Present: 23, 'Half-day': 1, Absent: 1, Leave: 1 },
-      { name: 'Wed', Present: 24, 'Half-day': 0, Absent: 0, Leave: 2 },
-      { name: 'Thu', Present: 22, 'Half-day': 2, Absent: 1, Leave: 1 },
-      { name: 'Fri', Present: 21, 'Half-day': 3, Absent: 0, Leave: 2 }
-    ]
+    attendanceOverview: days.map(d => ({
+      name: dayNames[new Date(d).getDay()],
+      ...dateMap[d],
+    })),
   });
 });
 
 // ================= AUTHENTICATION =================
-app.post('/api/auth/login', (req: Request, res: Response) => {
+app.post('/api/auth/login', async (req: Request, res: Response) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
-  const user = store.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+  const user = await prisma.user.findUnique({
+    where: { email: email.toLowerCase() },
+    include: { privateInfo: true, salaryStructure: true },
+  });
+
   if (!user || !compareSync(password, user.passwordHash)) {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
 
-  store.setActiveSessionUser(user);
-  const employee = store.employees.find(e => e.id === user.employeeId);
-  res.json({ user, employee });
+  activeSessionUser = user;
+  const employee = userToEmployee(user);
+  res.json({ user: userToAuthUser(user), employee });
 });
 
 app.post('/api/auth/logout', (req: Request, res: Response) => {
-  // Clear active session
+  activeSessionUser = null;
   res.json({ message: 'Logged out successfully' });
 });
 
-app.get('/api/auth/me', (req: Request, res: Response) => {
-  if (!store.activeSessionUser) {
+app.get('/api/auth/me', async (req: Request, res: Response) => {
+  if (!activeSessionUser) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
-  const employee = store.employees.find(e => e.id === store.activeSessionUser.employeeId);
-  res.json({ user: store.activeSessionUser, employee });
+  const user = await prisma.user.findUnique({
+    where: { id: activeSessionUser.id },
+    include: { privateInfo: true, salaryStructure: true },
+  });
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+  res.json({ user: userToAuthUser(user), employee: userToEmployee(user) });
 });
 
-// Toggles active user role between HR and Employee
-app.post('/api/auth/switch-role', (req: Request, res: Response) => {
-  if (!store.activeSessionUser) {
+app.post('/api/auth/switch-role', async (req: Request, res: Response) => {
+  if (!activeSessionUser) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
-  const userIdx = store.users.findIndex(u => u.id === store.activeSessionUser.id);
-  if (userIdx !== -1) {
-    const currentRole = store.users[userIdx].role;
-    const newRole = currentRole === 'HR' ? 'Employee' : 'HR';
-    store.users[userIdx].role = newRole;
-    store.setActiveSessionUser(store.users[userIdx]);
-    
-    // Also toggle actual status of employee
-    const empIdx = store.employees.findIndex(e => e.id === store.activeSessionUser.employeeId);
-    if (empIdx !== -1 && newRole === 'HR') {
-      store.employees[empIdx].status = 'Active';
-    }
-  }
-  const employee = store.employees.find(e => e.id === store.activeSessionUser.employeeId);
-  res.json({ user: store.activeSessionUser, employee });
+
+  const currentRole = activeSessionUser.role;
+  const newRole = currentRole === 'HR_ADMIN' ? Role.EMPLOYEE : Role.HR_ADMIN;
+
+  const updated = await prisma.user.update({
+    where: { id: activeSessionUser.id },
+    data: { role: newRole },
+    include: { privateInfo: true, salaryStructure: true },
+  });
+
+  activeSessionUser = updated;
+  res.json({ user: userToAuthUser(updated), employee: userToEmployee(updated) });
 });
 
 
-// ================= EMPLOYEES =================
-app.get('/api/employees', (req: Request, res: Response) => {
-  let list = [...store.employees];
+// ================= EMPLOYEES (ADMIN - from DB) =================
+app.get('/api/employees', async (req: Request, res: Response) => {
+  const { search, departmentId, status } = req.query;
 
-  // Filtering
-  const { search, departmentId, designationId, status, employmentType, workLocation } = req.query;
+  const users = await prisma.user.findMany({
+    include: { privateInfo: true, salaryStructure: true },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  let list = users.map(userToEmployee);
 
   if (search) {
     const q = (search as string).toLowerCase();
-    list = list.filter(e => 
+    list = list.filter(e =>
       e.firstName.toLowerCase().includes(q) ||
       e.lastName.toLowerCase().includes(q) ||
       e.employeeId.toLowerCase().includes(q) ||
@@ -122,617 +200,707 @@ app.get('/api/employees', (req: Request, res: Response) => {
     list = list.filter(e => e.departmentId === departmentId);
   }
 
-  if (designationId) {
-    list = list.filter(e => e.designationId === designationId);
-  }
-
-  if (status) {
-    list = list.filter(e => e.status.toLowerCase() === (status as string).toLowerCase());
-  }
-
-  if (employmentType) {
-    list = list.filter(e => e.employmentType === employmentType);
-  }
-
-  if (workLocation) {
-    list = list.filter(e => e.workLocation === workLocation);
-  }
-
   res.json(list);
 });
 
-app.get('/api/employees/:id', (req: Request, res: Response) => {
-  const emp = store.employees.find(e => e.id === req.params.id);
-  if (!emp) {
+app.get('/api/employees/:id', async (req: Request, res: Response) => {
+  const user = await prisma.user.findFirst({
+    where: { employeeId: req.params.id },
+    include: {
+      privateInfo: true,
+      salaryStructure: { include: { components: true } },
+      attendance: { orderBy: { date: 'desc' }, take: 30 },
+      leaveRequests: { orderBy: { appliedOn: 'desc' } },
+      leaveBalances: true,
+      payrolls: { include: { items: true }, orderBy: { year: 'desc' } },
+    },
+  });
+
+  if (!user) {
     return res.status(404).json({ error: 'Employee not found' });
   }
 
-  // Get linked details
-  const attendanceLogs = store.attendance.filter(a => a.employeeId === emp.id);
-  const leaveHistory = store.leaveRequests.filter(l => l.employeeId === emp.id);
-  const balances = store.leaveBalances.filter(b => b.employeeId === emp.id);
-  const payrollHistory = store.payrolls.filter(p => p.employeeId === emp.id);
+  const emp = userToEmployee(user);
 
-  res.json({
-    employee: emp,
-    attendance: attendanceLogs,
-    leaveRequests: leaveHistory,
-    leaveBalances: balances,
-    payroll: payrollHistory
-  });
+  // Transform attendance to expected format
+  const attendance = user.attendance.map(a => ({
+    id: a.id,
+    employeeId: user.employeeId,
+    date: a.date.toISOString().split('T')[0],
+    checkIn: a.checkIn ? a.checkIn.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--',
+    checkOut: a.checkOut ? a.checkOut.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--',
+    totalHours: `${Number(a.workHours).toFixed(0)}h`,
+    status: a.status === 'PRESENT' ? 'Present' : a.status === 'HALF_DAY' ? 'Half Day' : a.status === 'LEAVE' ? 'On Leave' : 'Absent',
+    location: user.location || '',
+  }));
+
+  const leaveTypeMap: Record<string, string> = {
+    PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave',
+    UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave',
+  };
+
+  const leaveRequests = user.leaveRequests.map(l => ({
+    id: l.id,
+    employeeId: user.employeeId,
+    leaveType: leaveTypeMap[l.type] || l.type,
+    startDate: l.startDate.toISOString().split('T')[0],
+    endDate: l.endDate.toISOString().split('T')[0],
+    duration: Number(l.days),
+    reason: l.reason,
+    status: l.status === 'PENDING' ? 'Pending' : l.status === 'APPROVED' ? 'Approved' : 'Rejected',
+    appliedAt: l.appliedOn.toISOString().split('T')[0],
+  }));
+
+  const leaveBalances = user.leaveBalances.map(b => ({
+    id: b.id,
+    employeeId: user.employeeId,
+    leaveType: leaveTypeMap[b.type] || b.type,
+    allocated: Number(b.totalDays),
+    used: Number(b.usedDays),
+    remaining: Number(b.totalDays) - Number(b.usedDays),
+  }));
+
+  const payroll = user.payrolls.map(p => ({
+    id: p.id,
+    employeeId: user.employeeId,
+    payrollMonth: `${p.year}-${String(p.month).padStart(2, '0')}`,
+    basicSalary: Number(p.grossSalary),
+    allowances: 0,
+    bonus: 0,
+    overtime: 0,
+    grossSalary: Number(p.grossSalary),
+    tax: 0,
+    pf: 0,
+    otherDeductions: 0,
+    totalDeductions: Number(p.totalDeductions),
+    netSalary: Number(p.netSalary),
+    status: p.paidOn ? 'Paid' : 'Draft',
+  }));
+
+  res.json({ employee: emp, attendance, leaveRequests, leaveBalances, payroll });
 });
 
-app.post('/api/employees', requireAdmin, (req: Request, res: Response) => {
-  const { 
+app.post('/api/employees', requireAdmin, async (req: Request, res: Response) => {
+  const {
     employeeId, firstName, lastName, email, phone, dateOfBirth, gender,
-    address, city, state, country, departmentId, designationId, managerId,
-    joiningDate, employmentType, workLocation, status, profilePhoto,
-    baseSalary, role
+    address, departmentId, designationId, managerId,
+    joiningDate, employmentType, workLocation, profilePhoto,
+    baseSalary, role,
   } = req.body;
 
-  // Validation
-  if (!employeeId || !firstName || !lastName || !email || !joiningDate || !employmentType) {
+  if (!employeeId || !firstName || !lastName || !email || !joiningDate) {
     return res.status(400).json({ error: 'Required fields missing' });
   }
 
-  // Duplicate ID & Email Check
-  if (store.employees.some(e => e.employeeId === employeeId)) {
-    return res.status(400).json({ error: 'Employee ID already exists' });
-  }
-  if (store.employees.some(e => e.email.toLowerCase() === email.toLowerCase())) {
-    return res.status(400).json({ error: 'Corporate email already exists' });
+  // Check duplicates
+  const existing = await prisma.user.findFirst({
+    where: { OR: [{ employeeId }, { email: email.toLowerCase() }] },
+  });
+  if (existing) {
+    return res.status(400).json({ error: 'Employee ID or email already exists' });
   }
 
-  const newEmp = store.addEmployee({
-    employeeId,
-    firstName,
-    lastName,
-    email,
-    phone: phone || '',
-    dateOfBirth: dateOfBirth || '',
-    gender: gender || 'Male',
-    address: address || '',
-    city: city || '',
-    state: state || '',
-    country: country || '',
-    departmentId: departmentId || 'D2',
-    designationId: designationId || 'DS4',
-    managerId: managerId || '',
-    joiningDate,
-    employmentType,
-    workLocation: workLocation || 'Office',
-    status: status || 'Active',
-    profilePhoto: profilePhoto || 'https://i.pravatar.cc/150?u=' + Math.random(),
-    baseSalary: parseFloat(baseSalary) || 4000,
-    hra: Math.round((parseFloat(baseSalary) || 4000) * 0.25),
-    allowances: Math.round((parseFloat(baseSalary) || 4000) * 0.10),
-    role: role || 'Employee'
-  } as any);
+  const salary = parseFloat(baseSalary) || 4000;
 
-  // Notify admin
-  store.notifications.push({
-    id: `NOT${store.notifications.length + 1}`,
-    userId: 'U1',
-    title: 'New Employee Added',
-    message: `${firstName} ${lastName} has been added to the directory.`,
-    type: 'employee',
-    isRead: false,
-    createdAt: new Date().toISOString()
+  const newUser = await prisma.user.create({
+    data: {
+      employeeId,
+      fullName: `${firstName} ${lastName}`,
+      email: email.toLowerCase(),
+      passwordHash: hashSync('password', 10),
+      role: role === 'HR' ? Role.HR_ADMIN : Role.EMPLOYEE,
+      department: departmentId || 'Engineering',
+      jobTitle: designationId || 'Software Engineer',
+      location: workLocation || 'Office',
+      avatarUrl: profilePhoto || `https://i.pravatar.cc/150?u=${Math.random()}`,
+      privateInfo: {
+        create: {
+          dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+          residingAddress: address || '',
+          gender: gender || 'Male',
+          dateOfJoining: new Date(joiningDate),
+        },
+      },
+      salaryStructure: {
+        create: {
+          monthlyWage: salary,
+          yearlyWage: salary * 12,
+          components: {
+            create: [
+              { name: 'Basic Salary', category: 'EARNING', calculationType: 'FIXED', value: salary, calculatedAmount: salary },
+            ],
+          },
+        },
+      },
+    },
+    include: { privateInfo: true, salaryStructure: true },
   });
 
-  res.json(newEmp);
-});
-
-app.put('/api/employees/:id', requireAdmin, (req: Request, res: Response) => {
-  try {
-    const updated = store.updateEmployee(req.params.id, req.body);
-    res.json(updated);
-  } catch (error: any) {
-    res.status(404).json({ error: error.message });
+  // Create leave balances for the new employee
+  const leaveTypes = [LeaveType.PAID_TIME_OFF, LeaveType.SICK_LEAVE, LeaveType.UNPAID_LEAVE, LeaveType.COMP_OFF];
+  const leaveDays = [18, 10, 5, 6];
+  for (let i = 0; i < leaveTypes.length; i++) {
+    await prisma.leaveBalance.create({
+      data: { userId: newUser.id, type: leaveTypes[i], totalDays: leaveDays[i], usedDays: 0, year: new Date().getFullYear() },
+    });
   }
+
+  // Add notification
+  if (activeSessionUser) {
+    await prisma.notification.create({
+      data: {
+        userId: activeSessionUser.id,
+        type: 'GENERAL',
+        title: 'New Employee Added',
+        message: `${firstName} ${lastName} has been added to the directory.`,
+      },
+    });
+  }
+
+  res.json(userToEmployee(newUser));
 });
 
-app.delete('/api/employees/:id', requireAdmin, (req: Request, res: Response) => {
-  store.deactivateEmployee(req.params.id);
+app.put('/api/employees/:id', requireAdmin, async (req: Request, res: Response) => {
+  const user = await prisma.user.findFirst({ where: { employeeId: req.params.id } });
+  if (!user) return res.status(404).json({ error: 'Employee not found' });
+
+  const { firstName, lastName, email, departmentId, designationId, workLocation, profilePhoto, baseSalary } = req.body;
+
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      ...(firstName && lastName ? { fullName: `${firstName} ${lastName}` } : {}),
+      ...(email ? { email: email.toLowerCase() } : {}),
+      ...(departmentId ? { department: departmentId } : {}),
+      ...(designationId ? { jobTitle: designationId } : {}),
+      ...(workLocation ? { location: workLocation } : {}),
+      ...(profilePhoto ? { avatarUrl: profilePhoto } : {}),
+    },
+    include: { privateInfo: true, salaryStructure: true },
+  });
+
+  res.json(userToEmployee(updated));
+});
+
+app.delete('/api/employees/:id', requireAdmin, async (req: Request, res: Response) => {
+  // "Deactivate" by deleting (or you could soft delete)
+  const user = await prisma.user.findFirst({ where: { employeeId: req.params.id } });
+  if (user) {
+    await prisma.user.delete({ where: { id: user.id } });
+  }
   res.json({ message: 'Employee deactivated successfully' });
 });
 
 
-// ================= ATTENDANCE =================
-app.get('/api/attendance', (req: Request, res: Response) => {
-  let list = [...store.attendance];
+// ================= ATTENDANCE (ADMIN - from DB) =================
+app.get('/api/attendance', async (req: Request, res: Response) => {
   const { date, status, employeeId } = req.query;
 
-  if (date) {
-    list = list.filter(a => a.date === date);
-  }
+  const where: any = {};
+  if (date) where.date = new Date(date as string);
   if (status) {
-    list = list.filter(a => a.status === status);
+    const statusMap: Record<string, string> = { Present: 'PRESENT', Absent: 'ABSENT', 'Half Day': 'HALF_DAY', 'On Leave': 'LEAVE' };
+    where.status = statusMap[status as string] || status;
   }
   if (employeeId) {
-    list = list.filter(a => a.employeeId === employeeId);
+    const u = await prisma.user.findFirst({ where: { employeeId: employeeId as string } });
+    if (u) where.userId = u.id;
   }
 
-  // Populate employee details for display
-  const result = list.map(a => {
-    const emp = store.employees.find(e => e.id === a.employeeId);
-    return {
-      ...a,
-      employeeName: emp ? `${emp.firstName} ${emp.lastName}` : 'Unknown',
-      department: emp ? store.departments.find(d => d.id === emp.departmentId)?.name : 'Unknown'
-    };
+  const records = await prisma.attendance.findMany({
+    where,
+    include: { user: true },
+    orderBy: { date: 'desc' },
   });
+
+  const result = records.map(a => ({
+    id: a.id,
+    employeeId: a.user.employeeId,
+    date: a.date.toISOString().split('T')[0],
+    checkIn: a.checkIn ? a.checkIn.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--',
+    checkOut: a.checkOut ? a.checkOut.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--',
+    totalHours: Number(a.workHours) > 0 ? `${Math.floor(Number(a.workHours))}h ${Math.round((Number(a.workHours) % 1) * 60)}m` : '--',
+    status: a.status === 'PRESENT' ? 'Present' : a.status === 'HALF_DAY' ? 'Half Day' : a.status === 'LEAVE' ? 'On Leave' : 'Absent',
+    location: a.user.location || 'Office',
+    employeeName: a.user.fullName,
+    department: a.user.department || 'Unknown',
+  }));
 
   res.json(result);
 });
 
-app.post('/api/attendance', (req: Request, res: Response) => {
-  const { employeeId, date, checkIn, checkOut, status, location } = req.body;
-  
+app.post('/api/attendance', async (req: Request, res: Response) => {
+  const { employeeId, date, checkIn, checkOut, status } = req.body;
   if (!employeeId || !date || !checkIn) {
     return res.status(400).json({ error: 'Missing required parameters' });
   }
 
-  const newRecord: store.Attendance = {
-    id: `ATT${store.attendance.length + 1}`,
+  const user = await prisma.user.findFirst({ where: { employeeId } });
+  if (!user) return res.status(404).json({ error: 'Employee not found' });
+
+  const statusMap: Record<string, AttendanceStatus> = {
+    Present: AttendanceStatus.PRESENT,
+    Absent: AttendanceStatus.ABSENT,
+    'Half Day': AttendanceStatus.HALF_DAY,
+    'On Leave': AttendanceStatus.LEAVE,
+    Late: AttendanceStatus.PRESENT,
+  };
+
+  const record = await prisma.attendance.create({
+    data: {
+      userId: user.id,
+      date: new Date(date),
+      checkIn: new Date(`${date}T${checkIn}`),
+      checkOut: checkOut ? new Date(`${date}T${checkOut}`) : null,
+      status: statusMap[status] || AttendanceStatus.PRESENT,
+      workHours: checkOut ? 8 : 0,
+    },
+  });
+
+  res.json({
+    id: record.id,
     employeeId,
     date,
     checkIn,
     checkOut: checkOut || '',
     totalHours: checkOut ? '8h 00m' : '--',
     status: status || 'Present',
-    location: location || 'Bangalore Office'
-  };
-
-  store.attendance.push(newRecord);
-  res.json(newRecord);
-});
-
-app.put('/api/attendance/:id', requireAdmin, (req: Request, res: Response) => {
-  const recordIdx = store.attendance.findIndex(a => a.id === req.params.id);
-  if (recordIdx === -1) {
-    return res.status(404).json({ error: 'Attendance record not found' });
-  }
-
-  store.attendance[recordIdx] = {
-    ...store.attendance[recordIdx],
-    ...req.body
-  };
-
-  res.json(store.attendance[recordIdx]);
-});
-
-
-// ================= LEAVES =================
-app.get('/api/leaves', (req: Request, res: Response) => {
-  const result = store.leaveRequests.map(req => {
-    const emp = store.employees.find(e => e.id === req.employeeId);
-    return {
-      ...req,
-      employeeName: emp ? `${emp.firstName} ${emp.lastName}` : 'Unknown',
-      role: emp ? store.designations.find(d => d.id === emp.designationId)?.name : 'Unknown',
-      avatar: emp ? emp.profilePhoto : 'https://i.pravatar.cc/150',
-      department: emp ? store.departments.find(d => d.id === emp.departmentId)?.name : 'Unknown'
-    };
+    location: user.location || 'Office',
   });
+});
+
+app.put('/api/attendance/:id', requireAdmin, async (req: Request, res: Response) => {
+  const record = await prisma.attendance.findUnique({ where: { id: req.params.id } });
+  if (!record) return res.status(404).json({ error: 'Attendance record not found' });
+
+  const updated = await prisma.attendance.update({
+    where: { id: req.params.id },
+    data: req.body,
+    include: { user: true },
+  });
+
+  res.json(updated);
+});
+
+
+// ================= LEAVES (ADMIN - from DB) =================
+app.get('/api/leaves', async (req: Request, res: Response) => {
+  const leaves = await prisma.leaveRequest.findMany({
+    include: { user: true },
+    orderBy: { appliedOn: 'desc' },
+  });
+
+  const leaveTypeMap: Record<string, string> = {
+    PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave',
+    UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave',
+  };
+
+  const result = leaves.map(l => ({
+    id: l.id,
+    employeeId: l.user.employeeId,
+    leaveType: leaveTypeMap[l.type] || l.type,
+    startDate: l.startDate.toISOString().split('T')[0],
+    endDate: l.endDate.toISOString().split('T')[0],
+    duration: Number(l.days),
+    reason: l.reason,
+    status: l.status === 'PENDING' ? 'Pending' : l.status === 'APPROVED' ? 'Approved' : 'Rejected',
+    appliedAt: l.appliedOn.toISOString().split('T')[0],
+    employeeName: l.user.fullName,
+    role: l.user.jobTitle || 'Unknown',
+    avatar: l.user.avatarUrl || 'https://i.pravatar.cc/150',
+    department: l.user.department || 'Unknown',
+  }));
 
   res.json(result);
 });
 
-app.post('/api/leaves', (req: Request, res: Response) => {
+app.post('/api/leaves', async (req: Request, res: Response) => {
   const { employeeId, leaveType, startDate, endDate, duration, reason } = req.body;
   if (!employeeId || !leaveType || !startDate || !endDate || !duration || !reason) {
     return res.status(400).json({ error: 'Missing leave details' });
   }
 
-  const newLeave: store.LeaveRequest = {
-    id: `REQ00${store.leaveRequests.length + 1}`,
+  const user = await prisma.user.findFirst({ where: { employeeId } });
+  if (!user) return res.status(404).json({ error: 'Employee not found' });
+
+  const typeMap: Record<string, LeaveType> = {
+    'Paid Time Off': LeaveType.PAID_TIME_OFF,
+    'Sick Leave': LeaveType.SICK_LEAVE,
+    'Unpaid Leave': LeaveType.UNPAID_LEAVE,
+    'Casual Leave': LeaveType.COMP_OFF,
+  };
+
+  const leave = await prisma.leaveRequest.create({
+    data: {
+      userId: user.id,
+      type: typeMap[leaveType] || LeaveType.PAID_TIME_OFF,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      days: parseInt(duration),
+      reason,
+      status: LeaveStatus.PENDING,
+    },
+  });
+
+  // Notify admin
+  if (activeSessionUser) {
+    await prisma.notification.create({
+      data: {
+        userId: activeSessionUser.id,
+        type: 'LEAVE',
+        title: 'New Leave Request',
+        message: `${user.fullName} applied for ${leaveType} (${duration} days)`,
+      },
+    });
+  }
+
+  const leaveTypeMapReverse: Record<string, string> = {
+    PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave',
+    UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave',
+  };
+
+  res.json({
+    id: leave.id,
     employeeId,
-    leaveType,
+    leaveType: leaveTypeMapReverse[leave.type] || leave.type,
     startDate,
     endDate,
     duration: parseInt(duration),
     reason,
     status: 'Pending',
-    appliedAt: new Date().toISOString().split('T')[0]
+    appliedAt: leave.appliedOn.toISOString().split('T')[0],
+  });
+});
+
+app.put('/api/leaves/:id/approve', requireAdmin, async (req: Request, res: Response) => {
+  const { comment } = req.body;
+
+  const leave = await prisma.leaveRequest.findUnique({ where: { id: req.params.id }, include: { user: true } });
+  if (!leave) return res.status(404).json({ error: 'Leave request not found' });
+
+  const updated = await prisma.leaveRequest.update({
+    where: { id: req.params.id },
+    data: {
+      status: LeaveStatus.APPROVED,
+      adminComment: comment || null,
+    },
+  });
+
+  // Deduct leave balance
+  await prisma.leaveBalance.updateMany({
+    where: { userId: leave.userId, type: leave.type, year: new Date().getFullYear() },
+    data: { usedDays: { increment: Number(leave.days) } },
+  });
+
+  // Mark attendance as leave for those days
+  const start = new Date(leave.startDate);
+  const end = new Date(leave.endDate);
+  const current = new Date(start);
+  while (current <= end) {
+    await prisma.attendance.upsert({
+      where: { userId_date: { userId: leave.userId, date: new Date(current) } },
+      update: { status: AttendanceStatus.LEAVE },
+      create: { userId: leave.userId, date: new Date(current), status: AttendanceStatus.LEAVE, workHours: 0 },
+    });
+    current.setDate(current.getDate() + 1);
+  }
+
+  // Notify employee
+  await prisma.notification.create({
+    data: {
+      userId: leave.userId,
+      type: 'LEAVE',
+      title: 'Leave Request Approved',
+      message: `Your leave request (${Number(leave.days)} days) was approved.${comment ? ' Comment: ' + comment : ''}`,
+    },
+  });
+
+  const leaveTypeMap: Record<string, string> = {
+    PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave',
+    UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave',
   };
 
-  store.leaveRequests.unshift(newLeave);
-
-  // Notify Admin
-  const emp = store.employees.find(e => e.id === employeeId);
-  store.notifications.push({
-    id: `NOT${store.notifications.length + 1}`,
-    userId: 'U1',
-    title: 'New Leave Request',
-    message: `${emp ? emp.firstName : 'Employee'} applied for ${leaveType} (${duration} days)`,
-    type: 'leave',
-    isRead: false,
-    createdAt: new Date().toISOString()
+  res.json({
+    id: updated.id,
+    employeeId: leave.user.employeeId,
+    leaveType: leaveTypeMap[updated.type] || updated.type,
+    startDate: updated.startDate.toISOString().split('T')[0],
+    endDate: updated.endDate.toISOString().split('T')[0],
+    duration: Number(updated.days),
+    reason: updated.reason,
+    status: 'Approved',
+    appliedAt: updated.appliedOn.toISOString().split('T')[0],
   });
-
-  res.json(newLeave);
 });
 
-app.put('/api/leaves/:id/approve', requireAdmin, (req: Request, res: Response) => {
+app.put('/api/leaves/:id/reject', requireAdmin, async (req: Request, res: Response) => {
   const { comment } = req.body;
-  const leaveIdx = store.leaveRequests.findIndex(l => l.id === req.params.id);
-  if (leaveIdx === -1) {
-    return res.status(404).json({ error: 'Leave request not found' });
-  }
+  if (!comment) return res.status(400).json({ error: 'Rejection reason is required' });
 
-  const request = store.leaveRequests[leaveIdx];
-  request.status = 'Approved';
-  request.reviewedAt = new Date().toISOString().split('T')[0];
-  request.reviewedBy = store.activeSessionUser.employeeId;
+  const leave = await prisma.leaveRequest.findUnique({ where: { id: req.params.id }, include: { user: true } });
+  if (!leave) return res.status(404).json({ error: 'Leave request not found' });
 
-  // Deduct Balance
-  const balanceIdx = store.leaveBalances.findIndex(b => b.employeeId === request.employeeId && b.leaveType === request.leaveType);
-  if (balanceIdx !== -1) {
-    store.leaveBalances[balanceIdx].used += request.duration;
-    store.leaveBalances[balanceIdx].remaining = Math.max(0, store.leaveBalances[balanceIdx].allocated - store.leaveBalances[balanceIdx].used);
-  }
-
-  // Auto-mark attendance for those days as On Leave
-  let start = new Date(request.startDate);
-  let end = new Date(request.endDate);
-  while (start <= end) {
-    const formattedDate = start.toISOString().split('T')[0];
-    const exists = store.attendance.find(a => a.employeeId === request.employeeId && a.date === formattedDate);
-    if (!exists) {
-      store.attendance.push({
-        id: `ATT${store.attendance.length + 1}`,
-        employeeId: request.employeeId,
-        date: formattedDate,
-        checkIn: '--',
-        checkOut: '--',
-        totalHours: '--',
-        status: 'On Leave',
-        location: '--',
-        remarks: `Leave approved: ${request.reason}`
-      });
-    } else {
-      exists.status = 'On Leave';
-    }
-    start.setDate(start.getDate() + 1);
-  }
-
-  // Notify Employee
-  store.notifications.push({
-    id: `NOT${store.notifications.length + 1}`,
-    userId: request.employeeId, // links to employee's user ID if matches
-    title: 'Leave Request Approved',
-    message: `Your request for ${request.leaveType} (${request.duration} days) was approved. ${comment ? 'Comment: ' + comment : ''}`,
-    type: 'leave',
-    isRead: false,
-    createdAt: new Date().toISOString()
+  const updated = await prisma.leaveRequest.update({
+    where: { id: req.params.id },
+    data: {
+      status: LeaveStatus.REJECTED,
+      adminComment: comment,
+    },
   });
 
-  res.json(request);
-});
-
-app.put('/api/leaves/:id/reject', requireAdmin, (req: Request, res: Response) => {
-  const { comment } = req.body;
-  if (!comment) {
-    return res.status(400).json({ error: 'Rejection reason is required' });
-  }
-
-  const leaveIdx = store.leaveRequests.findIndex(l => l.id === req.params.id);
-  if (leaveIdx === -1) {
-    return res.status(404).json({ error: 'Leave request not found' });
-  }
-
-  const request = store.leaveRequests[leaveIdx];
-  request.status = 'Rejected';
-  request.rejectionReason = comment;
-  request.reviewedAt = new Date().toISOString().split('T')[0];
-  request.reviewedBy = store.activeSessionUser.employeeId;
-
-  // Notify Employee
-  store.notifications.push({
-    id: `NOT${store.notifications.length + 1}`,
-    userId: request.employeeId,
-    title: 'Leave Request Rejected',
-    message: `Your request for ${request.leaveType} was rejected. Reason: ${comment}`,
-    type: 'leave',
-    isRead: false,
-    createdAt: new Date().toISOString()
+  await prisma.notification.create({
+    data: {
+      userId: leave.userId,
+      type: 'LEAVE',
+      title: 'Leave Request Rejected',
+      message: `Your leave request was rejected. Reason: ${comment}`,
+    },
   });
 
-  res.json(request);
+  const leaveTypeMap: Record<string, string> = {
+    PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave',
+    UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave',
+  };
+
+  res.json({
+    id: updated.id,
+    employeeId: leave.user.employeeId,
+    leaveType: leaveTypeMap[updated.type] || updated.type,
+    startDate: updated.startDate.toISOString().split('T')[0],
+    endDate: updated.endDate.toISOString().split('T')[0],
+    duration: Number(updated.days),
+    reason: updated.reason,
+    status: 'Rejected',
+    rejectionReason: comment,
+    appliedAt: updated.appliedOn.toISOString().split('T')[0],
+  });
 });
 
 
-// ================= PAYROLL =================
-app.get('/api/payroll', (req: Request, res: Response) => {
+// ================= PAYROLL (ADMIN - from DB) =================
+app.get('/api/payroll', async (req: Request, res: Response) => {
   const { month } = req.query;
-
-  // Determine user role
-  const isAdmin = store.activeSessionUser && store.activeSessionUser.role === 'HR';
+  const isAdmin = activeSessionUser && activeSessionUser.role === 'HR_ADMIN';
 
   if (isAdmin) {
-    let list = [...store.payrolls];
+    const where: any = {};
     if (month) {
-      list = list.filter(p => p.payrollMonth === month);
+      const [y, m] = (month as string).split('-');
+      where.year = parseInt(y);
+      where.month = parseInt(m);
     }
-    const result = list.map(p => {
-      const emp = store.employees.find(e => e.id === p.employeeId);
-      return {
-        ...p,
-        employeeName: emp ? `${emp.firstName} ${emp.lastName}` : 'Unknown',
-        employeeId: p.employeeId,
-        department: emp ? store.departments.find(d => d.id === emp.departmentId)?.name : 'Unknown'
-      };
+
+    const payrolls = await prisma.payroll.findMany({
+      where,
+      include: { user: true, items: true },
+      orderBy: { createdAt: 'desc' },
     });
+
+    const result = payrolls.map(p => ({
+      id: p.id,
+      employeeId: p.user.employeeId,
+      payrollMonth: `${p.year}-${String(p.month).padStart(2, '0')}`,
+      basicSalary: Number(p.grossSalary),
+      allowances: 0,
+      bonus: 0,
+      overtime: 0,
+      grossSalary: Number(p.grossSalary),
+      tax: 0,
+      pf: 0,
+      otherDeductions: 0,
+      totalDeductions: Number(p.totalDeductions),
+      netSalary: Number(p.netSalary),
+      status: p.paidOn ? 'Paid' : 'Draft',
+      employeeName: p.user.fullName,
+      department: p.user.department || 'Unknown',
+    }));
+
     return res.json(result);
   }
 
-  // Employee Mode: Return `{ current: { month, paidOn, netSalary, earnings, deductions }, history }`
-  const employeeId = store.activeSessionUser ? store.activeSessionUser.employeeId : 'EMP001';
-  const employee = store.employees.find(e => e.id === employeeId);
+  // Employee mode
+  const empId = activeSessionUser ? activeSessionUser.employeeId : 'EMP001';
+  const user = await prisma.user.findFirst({
+    where: { employeeId: empId },
+    include: {
+      salaryStructure: { include: { components: true } },
+      payrolls: { include: { items: true }, orderBy: { year: 'desc' } },
+    },
+  });
 
-  // Find payroll history for this employee
-  const empPayrolls = store.payrolls.filter(p => p.employeeId === employeeId);
+  if (!user) return res.json({ current: null, history: [] });
 
-  // Default to a current month slip if none generated yet
-  const activeMonthCode = '2026-07';
-  const activeMonthName = 'July 2026';
-  
-  let currentPayroll = empPayrolls.find(p => p.payrollMonth === activeMonthCode);
-  if (!currentPayroll) {
-    const basic = employee ? employee.baseSalary : 4500;
-    const allowances = employee ? employee.allowances : 1000;
-    const gross = basic + allowances;
-    const pf = Math.round(basic * 0.08);
-    const tax = Math.round(gross * 0.12);
-    const deductions = pf + tax;
-    const net = gross - deductions;
+  const salary = user.salaryStructure;
+  const basicVal = salary ? Number(salary.monthlyWage) : 4500;
+  const allowancesVal = 0;
+  const gross = basicVal + allowancesVal;
+  const pfVal = Math.round(basicVal * 0.08);
+  const taxVal = Math.round(gross * 0.12);
+  const totalDeductions = pfVal + taxVal;
+  const netSalary = gross - totalDeductions;
 
-    currentPayroll = {
-      id: `PAY-${employeeId}-${activeMonthCode}`,
-      employeeId,
-      payrollMonth: activeMonthCode,
-      basicSalary: basic,
-      allowances,
-      bonus: 0,
-      overtime: 0,
-      grossSalary: gross,
-      tax,
-      pf,
-      otherDeductions: 0,
-      totalDeductions: deductions,
-      netSalary: net,
-      status: 'Paid'
-    };
-  }
-
-  // Now check for Tour Reimbursement claims linked to this slip!
-  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  const parsedMonthNum = parseInt(currentPayroll.payrollMonth.split('-')[1] || '7');
-  const currentMonthName = monthNames[parsedMonthNum - 1] || 'July';
-  const currentYearName = currentPayroll.payrollMonth.split('-')[0] || '2026';
-
-  const matchedClaims = db.getClaimsByEmployee(employeeId).filter(c => 
-    c.payroll_added && 
-    c.payroll_month === currentMonthName && 
-    c.payroll_year === currentYearName
-  );
-
-  const tourReimbursementVal = matchedClaims.reduce((sum, c) => sum + (c.approved_total || 0), 0);
-
-  const basicVal = currentPayroll.basicSalary;
-  const allowancesVal = currentPayroll.allowances + currentPayroll.bonus + currentPayroll.overtime;
-  
-  const taxVal = currentPayroll.tax;
-  const pfVal = currentPayroll.pf;
-  const otherDedVal = currentPayroll.otherDeductions;
-
-  const totalEarningsVal = basicVal + allowancesVal + tourReimbursementVal;
-  const totalDeductionsVal = taxVal + pfVal + otherDedVal;
-  const netSalaryVal = totalEarningsVal - totalDeductionsVal;
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
   const currentPayload = {
-    month: `${currentMonthName} ${currentYearName}`,
-    paidOn: currentPayroll.status === 'Paid' ? `30 ${currentMonthName.slice(0, 3)} ${currentYearName}` : 'Pending',
-    netSalary: `$${netSalaryVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    month: 'July 2026',
+    paidOn: '30 Jul 2026',
+    netSalary: `$${netSalary.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
     earnings: {
-      total: `$${totalEarningsVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      basic: `$${basicVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      house: `$${Math.round(basicVal * 0.25).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      conveyance: `$${Math.round(basicVal * 0.10).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      other: `$${allowancesVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      tourReimbursement: tourReimbursementVal > 0 ? `$${tourReimbursementVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null
+      total: `$${gross.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+      basic: `$${basicVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+      house: `$${Math.round(basicVal * 0.25).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+      conveyance: `$${Math.round(basicVal * 0.10).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+      other: '$0.00',
     },
     deductions: {
-      total: `$${totalDeductionsVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      providentFund: `$${pfVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      professionalTax: `$200.00`,
-      incomeTax: `$${taxVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      other: `$${otherDedVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    }
+      total: `$${totalDeductions.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+      providentFund: `$${pfVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+      professionalTax: '$200.00',
+      incomeTax: `$${taxVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+      other: '$0.00',
+    },
   };
 
-  const historyList = empPayrolls.map(p => {
-    const pMonthNum = parseInt(p.payrollMonth.split('-')[1] || '7');
-    const pMonthName = monthNames[pMonthNum - 1] || 'July';
-    const pYear = p.payrollMonth.split('-')[0] || '2026';
-    
-    const pClaims = db.getClaimsByEmployee(employeeId).filter(c => 
-      c.payroll_added && 
-      c.payroll_month === pMonthName && 
-      c.payroll_year === pYear
-    );
-    const pReimb = pClaims.reduce((sum, c) => sum + (c.approved_total || 0), 0);
-    const pNet = p.netSalary + pReimb;
-
-    return {
-      month: `${pMonthName.slice(0, 3)} ${pYear}`,
-      amount: `$${pNet.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    };
-  });
+  const historyList = user.payrolls.map(p => ({
+    month: `${monthNames[p.month - 1]?.slice(0, 3)} ${p.year}`,
+    amount: `$${Number(p.netSalary).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+  }));
 
   if (historyList.length === 0) {
-    historyList.push({
-      month: `${currentMonthName.slice(0, 3)} ${currentYearName}`,
-      amount: `$${netSalaryVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    });
+    historyList.push({ month: 'Jul 2026', amount: `$${netSalary.toLocaleString('en-US', { minimumFractionDigits: 2 })}` });
   }
 
-  res.json({
-    current: currentPayload,
-    history: historyList
-  });
+  res.json({ current: currentPayload, history: historyList });
 });
 
-app.post('/api/payroll/generate', requireAdmin, (req: Request, res: Response) => {
+app.post('/api/payroll/generate', requireAdmin, async (req: Request, res: Response) => {
   const { month } = req.body;
-  if (!month) {
-    return res.status(400).json({ error: 'Payroll month is required (YYYY-MM)' });
-  }
+  if (!month) return res.status(400).json({ error: 'Payroll month is required (YYYY-MM)' });
 
-  // Remove existing drafts/unpaid records for this month
-  store.payrolls.forEach((p, idx) => {
-    if (p.payrollMonth === month && p.status !== 'Paid') {
-      store.payrolls.splice(idx, 1);
-    }
+  const [yearStr, monthStr] = month.split('-');
+  const year = parseInt(yearStr);
+  const monthNum = parseInt(monthStr);
+
+  const users = await prisma.user.findMany({
+    include: { salaryStructure: { include: { components: true } } },
   });
 
-  // Generate for all active employees
-  const generated: store.Payroll[] = [];
-  store.employees.filter(e => e.status !== 'Inactive').forEach(emp => {
-    // Check if already paid
-    const alreadyPaid = store.payrolls.some(p => p.employeeId === emp.id && p.payrollMonth === month && p.status === 'Paid');
-    if (alreadyPaid) return;
+  const generated: any[] = [];
 
-    const basicSalary = emp.baseSalary;
-    const allowances = emp.allowances;
-    const bonus = 0;
-    const overtime = 0;
-    const grossSalary = basicSalary + allowances + bonus + overtime;
+  for (const user of users) {
+    // Skip if already exists
+    const existing = await prisma.payroll.findUnique({
+      where: { userId_month_year: { userId: user.id, month: monthNum, year } },
+    });
+    if (existing) continue;
 
-    const tax = Math.round(grossSalary * 0.12);
-    const pf = Math.round(basicSalary * 0.08);
-    const otherDeductions = 0;
-    const totalDeductions = tax + pf + otherDeductions;
+    const salary = user.salaryStructure;
+    const basicSalary = salary ? Number(salary.monthlyWage) : 4000;
+    const earnings = salary?.components.filter(c => c.category === 'EARNING') || [];
+    const deductions = salary?.components.filter(c => c.category === 'DEDUCTION') || [];
+
+    const grossSalary = earnings.reduce((sum, c) => sum + Number(c.calculatedAmount), 0) || basicSalary;
+    const totalDeductions = deductions.reduce((sum, c) => sum + Number(c.calculatedAmount), 0) || Math.round(basicSalary * 0.2);
     const netSalary = grossSalary - totalDeductions;
 
-    const pay: store.Payroll = {
-      id: `PAY-${emp.id}-${month}`,
-      employeeId: emp.id,
-      payrollMonth: month,
-      basicSalary,
-      allowances,
-      bonus,
-      overtime,
-      grossSalary,
-      tax,
-      pf,
-      otherDeductions,
-      totalDeductions,
-      netSalary,
-      status: 'Draft'
-    };
+    const payroll = await prisma.payroll.create({
+      data: {
+        userId: user.id,
+        month: monthNum,
+        year,
+        grossSalary,
+        totalDeductions,
+        netSalary,
+        items: {
+          create: [
+            ...earnings.map(c => ({ name: c.name, category: 'EARNING' as const, amount: Number(c.calculatedAmount) })),
+            ...deductions.map(c => ({ name: c.name, category: 'DEDUCTION' as const, amount: Number(c.calculatedAmount) })),
+          ],
+        },
+      },
+    });
 
-    store.payrolls.push(pay);
-    generated.push(pay);
-  });
+    generated.push(payroll);
+  }
 
-  // Notify admins
-  store.notifications.push({
-    id: `NOT${store.notifications.length + 1}`,
-    userId: 'U1',
-    title: 'Payroll Generated',
-    message: `Payroll draft for ${month} has been generated for ${generated.length} employees.`,
-    type: 'payroll',
-    isRead: false,
-    createdAt: new Date().toISOString()
-  });
+  if (activeSessionUser) {
+    await prisma.notification.create({
+      data: {
+        userId: activeSessionUser.id,
+        type: 'PAYROLL',
+        title: 'Payroll Generated',
+        message: `Payroll draft for ${month} generated for ${generated.length} employees.`,
+      },
+    });
+  }
 
   res.json({ message: `Successfully generated payroll for ${generated.length} employees.`, generated });
 });
 
-app.put('/api/payroll/:id', requireAdmin, (req: Request, res: Response) => {
-  const payIdx = store.payrolls.findIndex(p => p.id === req.params.id);
-  if (payIdx === -1) {
-    return res.status(404).json({ error: 'Payroll record not found' });
-  }
+app.put('/api/payroll/:id', requireAdmin, async (req: Request, res: Response) => {
+  const payroll = await prisma.payroll.findUnique({ where: { id: req.params.id } });
+  if (!payroll) return res.status(404).json({ error: 'Payroll record not found' });
 
-  const current = store.payrolls[payIdx];
-  const { basicSalary, allowances, bonus, overtime, tax, pf, otherDeductions, status } = req.body;
+  const { grossSalary, totalDeductions, netSalary, status } = req.body;
 
-  const basic = basicSalary !== undefined ? parseFloat(basicSalary) : current.basicSalary;
-  const allow = allowances !== undefined ? parseFloat(allowances) : current.allowances;
-  const bon = bonus !== undefined ? parseFloat(bonus) : current.bonus;
-  const ot = overtime !== undefined ? parseFloat(overtime) : current.overtime;
-  const gross = basic + allow + bon + ot;
-
-  const tx = tax !== undefined ? parseFloat(tax) : current.tax;
-  const pFund = pf !== undefined ? parseFloat(pf) : current.pf;
-  const ded = otherDeductions !== undefined ? parseFloat(otherDeductions) : current.otherDeductions;
-  const totDed = tx + pFund + ded;
-  const net = gross - totDed;
-
-  store.payrolls[payIdx] = {
-    ...current,
-    basicSalary: basic,
-    allowances: allow,
-    bonus: bon,
-    overtime: ot,
-    grossSalary: gross,
-    tax: tx,
-    pf: pFund,
-    otherDeductions: ded,
-    totalDeductions: totDed,
-    netSalary: net,
-    status: status || current.status
-  };
-
-  res.json(store.payrolls[payIdx]);
-});
-
-app.put('/api/payroll/:id/approve', requireAdmin, (req: Request, res: Response) => {
-  const payIdx = store.payrolls.findIndex(p => p.id === req.params.id);
-  if (payIdx === -1) {
-    return res.status(404).json({ error: 'Payroll record not found' });
-  }
-
-  store.payrolls[payIdx].status = 'Paid';
-
-  // Notify Employee
-  store.notifications.push({
-    id: `NOT${store.notifications.length + 1}`,
-    userId: store.payrolls[payIdx].employeeId,
-    title: 'Payslip Available',
-    message: `Your payslip for ${store.payrolls[payIdx].payrollMonth} is ready for download. Net salary: $${store.payrolls[payIdx].netSalary.toLocaleString()}`,
-    type: 'payroll',
-    isRead: false,
-    createdAt: new Date().toISOString()
+  const updated = await prisma.payroll.update({
+    where: { id: req.params.id },
+    data: {
+      ...(grossSalary !== undefined ? { grossSalary: parseFloat(grossSalary) } : {}),
+      ...(totalDeductions !== undefined ? { totalDeductions: parseFloat(totalDeductions) } : {}),
+      ...(netSalary !== undefined ? { netSalary: parseFloat(netSalary) } : {}),
+      ...(status === 'Paid' ? { paidOn: new Date() } : {}),
+    },
   });
 
-  res.json(store.payrolls[payIdx]);
+  res.json(updated);
+});
+
+app.put('/api/payroll/:id/approve', requireAdmin, async (req: Request, res: Response) => {
+  const payroll = await prisma.payroll.findUnique({ where: { id: req.params.id }, include: { user: true } });
+  if (!payroll) return res.status(404).json({ error: 'Payroll record not found' });
+
+  const updated = await prisma.payroll.update({
+    where: { id: req.params.id },
+    data: { paidOn: new Date() },
+  });
+
+  await prisma.notification.create({
+    data: {
+      userId: payroll.userId,
+      type: 'PAYROLL',
+      title: 'Payslip Available',
+      message: `Your payslip for ${payroll.year}-${String(payroll.month).padStart(2, '0')} is ready. Net: $${Number(payroll.netSalary).toLocaleString()}`,
+    },
+  });
+
+  res.json({
+    ...updated,
+    status: 'Paid',
+    employeeId: payroll.user.employeeId,
+    payrollMonth: `${payroll.year}-${String(payroll.month).padStart(2, '0')}`,
+  });
 });
 
 
-// ================= REPORTS & ANALYTICS =================
-app.get('/api/reports/overview', (req: Request, res: Response) => {
-  const totalEmployees = store.employees.filter(e => e.status !== 'Inactive').length;
-  
-  // Calculate average attendance rate
-  const uniqueDays = Array.from(new Set(store.attendance.map(a => a.date)));
+// ================= REPORTS (ADMIN - from DB) =================
+app.get('/api/reports/overview', async (req: Request, res: Response) => {
+  const totalEmployees = await prisma.user.count();
+
+  const attendance = await prisma.attendance.findMany();
+  const uniqueDays = [...new Set(attendance.map(a => a.date.toISOString().split('T')[0]))];
   let attendanceSum = 0;
   uniqueDays.forEach(d => {
-    const presentOnDay = store.attendance.filter(a => a.date === d && (a.status === 'Present' || a.status === 'Late' || a.status === 'Half Day' || a.status === 'Work From Home')).length;
-    attendanceSum += (presentOnDay / totalEmployees) * 100;
+    const present = attendance.filter(a => a.date.toISOString().split('T')[0] === d && (a.status === 'PRESENT' || a.status === 'HALF_DAY')).length;
+    attendanceSum += (present / totalEmployees) * 100;
   });
   const avgAttendance = uniqueDays.length > 0 ? Math.round(attendanceSum / uniqueDays.length) : 95;
 
-  const totalLeaves = store.leaveRequests.filter(l => l.status === 'Approved').reduce((acc, curr) => acc + curr.duration, 0);
-  
-  // Total current month payroll (e.g. 2026-07)
-  const currentMonthPayrolls = store.payrolls.filter(p => p.payrollMonth === '2026-07');
-  const payrollCost = currentMonthPayrolls.reduce((acc, curr) => acc + curr.netSalary, 0);
+  const approvedLeaves = await prisma.leaveRequest.findMany({ where: { status: 'APPROVED' } });
+  const totalLeaves = approvedLeaves.reduce((sum, l) => sum + Number(l.days), 0);
 
-  const overtimeHours = '32h 15m';
+  const payrolls = await prisma.payroll.findMany({ where: { month: 7, year: 2026 } });
+  const payrollCost = payrolls.reduce((sum, p) => sum + Number(p.netSalary), 0);
 
   res.json({
     kpis: {
@@ -740,59 +908,63 @@ app.get('/api/reports/overview', (req: Request, res: Response) => {
       avgAttendance: `${avgAttendance}%`,
       totalLeaves,
       payrollThisMonth: `$${payrollCost.toLocaleString()}`,
-      overtimeHours
-    }
+      overtimeHours: '32h 15m',
+    },
   });
 });
 
-app.get('/api/reports/attendance', (req: Request, res: Response) => {
-  // Return attendance trend
-  const uniqueDays = Array.from(new Set(store.attendance.map(a => a.date))).sort();
-  const trend = uniqueDays.slice(-5).map(d => {
-    const totalCount = store.employees.filter(e => e.status !== 'Inactive').length;
-    const present = store.attendance.filter(a => a.date === d && (a.status === 'Present' || a.status === 'Late' || a.status === 'Half Day' || a.status === 'Work From Home')).length;
+app.get('/api/reports/attendance', async (req: Request, res: Response) => {
+  const totalEmployees = await prisma.user.count();
+  const attendance = await prisma.attendance.findMany({ orderBy: { date: 'asc' } });
+
+  const uniqueDays = [...new Set(attendance.map(a => a.date.toISOString().split('T')[0]))].sort().slice(-5);
+
+  const trend = uniqueDays.map(d => {
+    const present = attendance.filter(a => a.date.toISOString().split('T')[0] === d && (a.status === 'PRESENT' || a.status === 'HALF_DAY')).length;
     return {
-      name: d.split('-').slice(1).reverse().join(' '), // DD MM format
-      value: Math.round((present / totalCount) * 100)
+      name: d.split('-').slice(1).reverse().join(' '),
+      value: Math.round((present / totalEmployees) * 100),
     };
   });
 
   res.json(trend);
 });
 
-app.get('/api/reports/leaves', (req: Request, res: Response) => {
-  // Return leave types breakdown
-  const counts = { 'Paid Time Off': 0, 'Sick Leave': 0, 'Unpaid Leave': 0, 'Casual Leave': 0, 'Other': 0 };
-  store.leaveRequests.filter(l => l.status === 'Approved').forEach(l => {
-    if (counts[l.leaveType] !== undefined) {
-      counts[l.leaveType] += l.duration;
-    }
+app.get('/api/reports/leaves', async (req: Request, res: Response) => {
+  const approved = await prisma.leaveRequest.findMany({ where: { status: 'APPROVED' } });
+
+  const counts: Record<string, number> = { 'Paid Time Off': 0, 'Sick Leave': 0, 'Unpaid Leave': 0, 'Casual Leave': 0 };
+  const typeMap: Record<string, string> = {
+    PAID_TIME_OFF: 'Paid Time Off', SICK_LEAVE: 'Sick Leave',
+    UNPAID_LEAVE: 'Unpaid Leave', COMP_OFF: 'Casual Leave',
+  };
+
+  approved.forEach(l => {
+    const name = typeMap[l.type] || 'Other';
+    if (counts[name] !== undefined) counts[name] += Number(l.days);
   });
 
-  res.json([
-    { name: 'Paid Time Off', value: counts['Paid Time Off'] },
-    { name: 'Sick Leave', value: counts['Sick Leave'] },
-    { name: 'Unpaid Leave', value: counts['Unpaid Leave'] },
-    { name: 'Casual Leave', value: counts['Casual Leave'] }
-  ]);
+  res.json(Object.entries(counts).map(([name, value]) => ({ name, value })));
 });
 
-app.get('/api/reports/payroll', (req: Request, res: Response) => {
-  // Return department headcount and payroll breakdown
-  const breakdown = store.departments.map(d => {
-    const emps = store.employees.filter(e => e.departmentId === d.id && e.status !== 'Inactive');
-    const totalPayroll = store.payrolls
-      .filter(p => p.payrollMonth === '2026-07' && emps.some(e => e.id === p.employeeId))
-      .reduce((acc, curr) => acc + curr.netSalary, 0);
+app.get('/api/reports/payroll', async (req: Request, res: Response) => {
+  const users = await prisma.user.findMany();
+  const payrolls = await prisma.payroll.findMany({ where: { month: 7, year: 2026 } });
+
+  const departments = [...new Set(users.map(u => u.department).filter(Boolean))];
+  const colors = ['#7FAF3F', '#E5A83B', '#E56B65', '#7A70C7', '#67AFA5'];
+
+  const breakdown = departments.map((dept, i) => {
+    const deptUsers = users.filter(u => u.department === dept);
+    const totalPayroll = payrolls
+      .filter(p => deptUsers.some(u => u.id === p.userId))
+      .reduce((sum, p) => sum + Number(p.netSalary), 0);
 
     return {
-      name: d.name,
-      value: emps.length,
+      name: dept,
+      value: deptUsers.length,
       payroll: totalPayroll,
-      color: d.id === 'D1' ? '#7FAF3F' :
-             d.id === 'D2' ? '#E5A83B' :
-             d.id === 'D3' ? '#E56B65' :
-             d.id === 'D4' ? '#7A70C7' : '#67AFA5'
+      color: colors[i % colors.length],
     };
   });
 
@@ -800,68 +972,84 @@ app.get('/api/reports/payroll', (req: Request, res: Response) => {
 });
 
 
-// ================= NOTIFICATIONS =================
-app.get('/api/notifications', (req: Request, res: Response) => {
-  const unread = store.notifications.filter(n => !n.isRead).length;
-  res.json({ list: store.notifications, unread });
+// ================= NOTIFICATIONS (from DB) =================
+app.get('/api/notifications', async (req: Request, res: Response) => {
+  if (!activeSessionUser) return res.json({ list: [], unread: 0 });
+
+  const notifications = await prisma.notification.findMany({
+    where: { userId: activeSessionUser.id },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const list = notifications.map(n => ({
+    id: n.id,
+    userId: activeSessionUser.id,
+    title: n.title,
+    message: n.message,
+    type: n.type.toLowerCase(),
+    isRead: n.isRead,
+    createdAt: n.createdAt.toISOString(),
+  }));
+
+  const unread = list.filter(n => !n.isRead).length;
+  res.json({ list, unread });
 });
 
-app.put('/api/notifications/:id/read', (req: Request, res: Response) => {
-  const item = store.notifications.find(n => n.id === req.params.id);
-  if (item) {
-    item.isRead = true;
-  }
+app.put('/api/notifications/:id/read', async (req: Request, res: Response) => {
+  await prisma.notification.update({
+    where: { id: req.params.id },
+    data: { isRead: true },
+  });
   res.json({ success: true });
 });
 
-app.put('/api/notifications/read-all', (req: Request, res: Response) => {
-  store.notifications.forEach(n => n.isRead = true);
+app.put('/api/notifications/read-all', async (req: Request, res: Response) => {
+  if (!activeSessionUser) return res.json({ success: false });
+  await prisma.notification.updateMany({
+    where: { userId: activeSessionUser.id },
+    data: { isRead: true },
+  });
   res.json({ success: true });
 });
 
 
-// ================= MESSAGES =================
+// ================= MESSAGES (kept in-memory) =================
 app.get('/api/messages', (req: Request, res: Response) => {
-  // Return all messages for simulated chat log
   const result = store.messages.map(m => {
     const sender = store.employees.find(e => e.id === m.senderId);
     return {
       ...m,
       senderName: sender ? `${sender.firstName} ${sender.lastName}` : 'System',
-      senderAvatar: sender ? sender.profilePhoto : 'https://i.pravatar.cc/150'
+      senderAvatar: sender ? sender.profilePhoto : 'https://i.pravatar.cc/150',
     };
   });
-
   const unreadCount = store.messages.filter(m => !m.isRead && m.receiverId === 'EMP001').length;
   res.json({ list: result, unreadCount });
 });
 
 app.post('/api/messages', (req: Request, res: Response) => {
   const { receiverId, message } = req.body;
-  if (!receiverId || !message) {
-    return res.status(400).json({ error: 'Missing parameters' });
-  }
+  if (!receiverId || !message) return res.status(400).json({ error: 'Missing parameters' });
 
   const newMsg: store.Message = {
     id: `MSG${store.messages.length + 1}`,
-    senderId: store.activeSessionUser.employeeId,
+    senderId: activeSessionUser?.employeeId || 'EMP001',
     receiverId,
     message,
     isRead: false,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
   };
-
   store.messages.push(newMsg);
   res.json(newMsg);
 });
 
 
-// ================= SETTINGS =================
+// ================= SETTINGS (kept in-memory) =================
 app.get('/api/settings', (req: Request, res: Response) => {
   res.json({
     company: store.companySettings,
     departments: store.departments,
-    designations: store.designations
+    designations: store.designations,
   });
 });
 
@@ -885,31 +1073,26 @@ app.post('/api/settings/designations', requireAdmin, (req: Request, res: Respons
 });
 
 
-// ================= TOUR EXPENSE REIMBURSEMENT APIs =================
-
-// Submit new claim (Employee)
+// ================= TOUR EXPENSE REIMBURSEMENT (kept using db.ts JSON) =================
 app.post('/api/reimbursements', (req: Request, res: Response) => {
-  const { 
-    employeeId, employeeName, employeeDepartment, 
-    tourTitle, destination, startDate, endDate, purpose, categories 
+  const {
+    employeeId, employeeName, employeeDepartment,
+    tourTitle, destination, startDate, endDate, purpose, categories,
   } = req.body;
 
   if (!tourTitle || !destination || !startDate || !endDate || !categories || categories.length === 0) {
     return res.status(400).json({ error: 'Missing required tour or category receipts details.' });
   }
 
-  // Calculate claimed total
   let totalClaimed = 0;
   categories.forEach((cat: any) => {
-    cat.bills.forEach((bill: any) => {
-      totalClaimed += Number(bill.amount || 0);
-    });
+    cat.bills.forEach((bill: any) => { totalClaimed += Number(bill.amount || 0); });
   });
 
   const claimId = `CLM-${Date.now()}`;
   const newClaim: ExpenseClaim = {
     id: claimId,
-    employee_id: employeeId || (store.activeSessionUser ? store.activeSessionUser.employeeId : 'EMP001'),
+    employee_id: employeeId || (activeSessionUser ? activeSessionUser.employeeId : 'EMP001'),
     employee_name: employeeName || 'Alex Martin',
     employee_department: employeeDepartment || 'Design',
     tour_title: tourTitle,
@@ -921,20 +1104,15 @@ app.post('/api/reimbursements', (req: Request, res: Response) => {
     approved_total: 0,
     status: 'pending',
     submitted_at: new Date().toISOString(),
-    payroll_added: false
+    payroll_added: false,
   };
 
-  // Save claim
   db.saveClaim(newClaim);
 
-  // Process categories and files
   categories.forEach((cat: any) => {
     const catId = `CAT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    
     let catTotal = 0;
-    cat.bills.forEach((bill: any) => {
-      catTotal += Number(bill.amount || 0);
-    });
+    cat.bills.forEach((bill: any) => { catTotal += Number(bill.amount || 0); });
 
     const newCategory: ExpenseCategory = {
       id: catId,
@@ -942,9 +1120,8 @@ app.post('/api/reimbursements', (req: Request, res: Response) => {
       category_name: cat.name,
       employee_category_total: catTotal,
       hr_category_total: 0,
-      review_status: 'pending'
+      review_status: 'pending',
     };
-
     db.saveCategory(newCategory);
 
     cat.bills.forEach((bill: any) => {
@@ -957,73 +1134,48 @@ app.post('/api/reimbursements', (req: Request, res: Response) => {
         original_file_name: bill.name,
         employee_amount: Number(bill.amount),
         hr_approved_amount: null,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
       };
       db.saveBill(newBill);
     });
   });
 
-  // Push HR notification in store
-  store.notifications.unshift({
-    id: `NOT-${Date.now()}`,
-    userId: 'U1', // Admin/HR user ID
-    title: 'New Expense Claim Submitted',
-    message: `${newClaim.employee_name} submitted a claim of ₹${newClaim.claimed_total.toLocaleString('en-IN')} for '${newClaim.tour_title}'.`,
-    type: 'payroll',
-    isRead: false,
-    createdAt: new Date().toISOString()
-  });
-
   res.json({ success: true, claimId });
 });
 
-// Get employee claims list
 app.get('/api/reimbursements', (req: Request, res: Response) => {
-  const empId = store.activeSessionUser ? store.activeSessionUser.employeeId : 'EMP001';
-  const claims = db.getClaimsByEmployee(empId);
-  res.json(claims);
+  const empId = activeSessionUser ? activeSessionUser.employeeId : 'EMP001';
+  res.json(db.getClaimsByEmployee(empId));
 });
 
-// Get admin claims list (HR)
 app.get('/api/admin/reimbursements', requireAdmin, (req: Request, res: Response) => {
-  const claims = db.getClaims();
-  res.json(claims);
+  res.json(db.getClaims());
 });
 
-// Get claim details (Employee & HR)
 app.get('/api/reimbursements/:id', (req: Request, res: Response) => {
   const claim = db.getClaimById(req.params.id);
-  if (!claim) {
-    return res.status(404).json({ error: 'Claim record not found.' });
-  }
-
+  if (!claim) return res.status(404).json({ error: 'Claim record not found.' });
   const categories = db.getCategoriesByClaim(claim.id);
   const bills = db.getBillsByClaim(claim.id);
-
   res.json({ claim, categories, bills });
 });
 
-// Save category review (HR)
 app.put('/api/admin/reimbursements/:id/category', requireAdmin, (req: Request, res: Response) => {
   const { categoryId, bills: billUpdates } = req.body;
   if (!categoryId || !billUpdates || !Array.isArray(billUpdates)) {
     return res.status(400).json({ error: 'Missing category updates.' });
   }
 
-  // Update bills
   let hrCategoryTotal = 0;
   billUpdates.forEach((u: any) => {
     const dbBill = db.getBillsByClaim(req.params.id).find(b => b.id === u.id);
     if (dbBill) {
       dbBill.hr_approved_amount = u.hrApprovedAmount === null ? null : Number(u.hrApprovedAmount);
       db.saveBill(dbBill);
-      if (dbBill.hr_approved_amount !== null) {
-        hrCategoryTotal += dbBill.hr_approved_amount;
-      }
+      if (dbBill.hr_approved_amount !== null) hrCategoryTotal += dbBill.hr_approved_amount;
     }
   });
 
-  // Update category status
   const dbCategory = db.getCategoriesByClaim(req.params.id).find(c => c.id === categoryId);
   if (dbCategory) {
     dbCategory.hr_category_total = hrCategoryTotal;
@@ -1035,34 +1187,25 @@ app.put('/api/admin/reimbursements/:id/category', requireAdmin, (req: Request, r
   res.json({ success: true, hrCategoryTotal, reviewStatus: 'reviewed' });
 });
 
-// Finalize claim decision (HR)
 app.post('/api/admin/reimbursements/:id/finalize', requireAdmin, (req: Request, res: Response) => {
   const { reason } = req.body;
   const claim = db.getClaimById(req.params.id);
-  if (!claim) {
-    return res.status(404).json({ error: 'Claim not found.' });
-  }
+  if (!claim) return res.status(404).json({ error: 'Claim not found.' });
 
   const categories = db.getCategoriesByClaim(claim.id);
   const bills = db.getBillsByClaim(claim.id);
 
-  // Double check that all categories are reviewed
   const unreviewedCat = categories.some(c => c.review_status !== 'reviewed');
   const unreviewedBill = bills.some(b => b.hr_approved_amount === null);
   if (unreviewedCat || unreviewedBill) {
     return res.status(400).json({ error: 'Please save reviews for all categories before making final decision.' });
   }
 
-  // Calculate final approved total
   const finalApprovedTotal = categories.reduce((sum, c) => sum + (c.hr_category_total || 0), 0);
 
-  // Categorize decision
   let decision: 'approved' | 'partially_approved' | 'rejected' = 'approved';
-  if (finalApprovedTotal === 0) {
-    decision = 'rejected';
-  } else if (finalApprovedTotal < claim.claimed_total) {
-    decision = 'partially_approved';
-  }
+  if (finalApprovedTotal === 0) decision = 'rejected';
+  else if (finalApprovedTotal < claim.claimed_total) decision = 'partially_approved';
 
   if (decision !== 'approved' && !reason?.trim()) {
     return res.status(400).json({ error: `Mandatory reason required for ${decision.replace('_', ' ')}.` });
@@ -1072,59 +1215,33 @@ app.post('/api/admin/reimbursements/:id/finalize', requireAdmin, (req: Request, 
   claim.approved_total = finalApprovedTotal;
   claim.hr_reason = reason || '';
   claim.reviewed_at = new Date().toISOString();
-  claim.reviewed_by = store.activeSessionUser ? store.activeSessionUser.employeeId : 'HR001';
-
+  claim.reviewed_by = activeSessionUser ? activeSessionUser.employeeId : 'HR001';
   db.saveClaim(claim);
-
-  // Push Employee notification in store
-  store.notifications.unshift({
-    id: `NOT-${Date.now()}`,
-    userId: claim.employee_id, // Employee user ID
-    title: `Tour Reimbursement ${decision === 'approved' ? 'Approved' : decision === 'rejected' ? 'Rejected' : 'Partially Approved'}`,
-    message: `Your claim of ₹${claim.claimed_total.toLocaleString('en-IN')} for '${claim.tour_title}' has been reviewed: ${decision.toUpperCase()}. Approved amount: ₹${finalApprovedTotal.toLocaleString('en-IN')}.`,
-    type: 'payroll',
-    isRead: false,
-    createdAt: new Date().toISOString()
-  });
 
   res.json({ success: true, status: decision, approvedTotal: finalApprovedTotal });
 });
 
-// Link reimbursement to payroll period (HR)
 app.post('/api/admin/reimbursements/:id/payroll', requireAdmin, (req: Request, res: Response) => {
   const { month, year } = req.body;
-  if (!month || !year) {
-    return res.status(400).json({ error: 'Month and year are required.' });
-  }
+  if (!month || !year) return res.status(400).json({ error: 'Month and year are required.' });
 
   const claim = db.getClaimById(req.params.id);
-  if (!claim) {
-    return res.status(404).json({ error: 'Claim not found.' });
-  }
+  if (!claim) return res.status(404).json({ error: 'Claim not found.' });
 
   if (claim.status === 'pending' || claim.status === 'rejected') {
-    return res.status(400).json({ error: 'Reimbursement claim must be approved or partially approved first.' });
+    return res.status(400).json({ error: 'Reimbursement claim must be approved first.' });
   }
 
-  // Update claim
   claim.payroll_added = true;
   claim.payroll_month = month;
   claim.payroll_year = year;
   claim.payroll_entry_id = `PAY-ENT-${Date.now()}`;
   db.saveClaim(claim);
 
-  // Append to payroll array if exists
-  const monthCode = `${year}-${month === 'January' ? '01' : month === 'February' ? '02' : month === 'March' ? '03' : month === 'April' ? '04' : month === 'May' ? '05' : month === 'June' ? '06' : month === 'July' ? '07' : month === 'August' ? '08' : month === 'September' ? '09' : month === 'October' ? '10' : month === 'November' ? '11' : '12'}`;
-  const payrollRecord = store.payrolls.find(p => p.employeeId === claim.employee_id && p.payrollMonth === monthCode);
-  if (payrollRecord) {
-    payrollRecord.netSalary += claim.approved_total;
-    payrollRecord.grossSalary += claim.approved_total;
-  }
-
   res.json({ success: true, message: `Successfully linked reimbursement to ${month} ${year} payslip.` });
 });
 
 
 app.listen(port, () => {
-  console.log(`⚡️[server]: Server is running at http://localhost:${port}`);
+  console.log(`⚡️[server]: Server is running at http://localhost:${port} (PostgreSQL connected)`);
 });
