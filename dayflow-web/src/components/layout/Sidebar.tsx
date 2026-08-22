@@ -5,20 +5,28 @@ import { usePathname } from 'next/navigation';
 import { 
   LayoutDashboard, CalendarCheck, FileText, User, 
   Folder, Calendar, Bell, BarChart2, Settings, LogOut, 
-  Leaf, Crown
+  Leaf, Crown, Users
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
-const navigation = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Attendance', href: '/attendance', icon: CalendarCheck },
+const employeeNav = [
+  { name: 'My Dashboard', href: '/', icon: LayoutDashboard },
+  { name: 'My Attendance', href: '/attendance', icon: CalendarCheck },
   { name: 'Leave & Time-off', href: '/leave', icon: Calendar },
-  { name: 'Payroll', href: '/payroll', icon: FileText },
-  { name: 'Profile', href: '/profile', icon: User },
+  { name: 'My Payslip', href: '/payroll', icon: FileText },
+  { name: 'My Profile', href: '/profile', icon: User },
   { name: 'Documents', href: '/documents', icon: Folder },
   { name: 'Calendar', href: '/calendar', icon: Calendar },
   { name: 'Announcements', href: '/announcements', icon: Bell },
-  { name: 'Reports', href: '/reports', icon: BarChart2 },
+];
+
+const adminNav = [
+  { name: 'Admin Dashboard', href: '/admin', icon: LayoutDashboard },
+  { name: 'Directory', href: '/admin/directory', icon: Users },
+  { name: 'All Attendance', href: '/admin/attendance', icon: CalendarCheck },
+  { name: 'Leave Approvals', href: '/admin/leaves', icon: Calendar },
+  { name: 'Payroll Control', href: '/admin/payroll', icon: FileText },
+  { name: 'Reports & Analytics', href: '/reports', icon: BarChart2 },
 ];
 
 export function Sidebar() {
@@ -38,7 +46,12 @@ export function Sidebar() {
       
       <div className="flex flex-1 flex-col overflow-y-auto px-4 py-2 space-y-1">
         <nav className="flex-1 space-y-1.5">
-          {navigation.map((item) => {
+          {pathname.startsWith('/admin') || pathname === '/reports' ? (
+            <div className="mb-4 px-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Admin Portal</div>
+          ) : (
+            <div className="mb-4 px-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Employee Portal</div>
+          )}
+          {(pathname.startsWith('/admin') || pathname === '/reports' ? adminNav : employeeNav).map((item) => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
             return (
@@ -73,6 +86,24 @@ export function Sidebar() {
       </div>
       
       <div className="p-4 pb-8 space-y-1">
+        {!(pathname.startsWith('/admin') || pathname === '/reports') && (
+          <button 
+            onClick={() => window.location.href = '/admin'}
+            className="flex w-full items-center gap-3.5 rounded-2xl px-4 py-3 text-[15px] font-medium text-gray-400 hover:bg-sidebar-hover hover:text-white transition-all border border-transparent hover:border-gray-600 mb-2"
+          >
+            <Users className="h-5 w-5" />
+            Switch to Admin
+          </button>
+        )}
+        {(pathname.startsWith('/admin') || pathname === '/reports') && (
+          <button 
+            onClick={() => window.location.href = '/'}
+            className="flex w-full items-center gap-3.5 rounded-2xl px-4 py-3 text-[15px] font-medium text-gray-400 hover:bg-sidebar-hover hover:text-white transition-all border border-transparent hover:border-gray-600 mb-2"
+          >
+            <User className="h-5 w-5" />
+            Switch to Employee
+          </button>
+        )}
         <button className="flex w-full items-center gap-3.5 rounded-2xl px-4 py-3 text-[15px] font-medium text-gray-400 hover:bg-sidebar-hover hover:text-white transition-all">
           <Settings className="h-5 w-5" />
           Settings
