@@ -99,6 +99,19 @@ export function Header() {
     }
   };
 
+  const handleRoleSwitch = async () => {
+    try {
+      const data = await api.switchRole();
+      setCurrentUser(data.user);
+      setEmployee(data.employee);
+      setShowProfileDropdown(false);
+      // Reload page to reflect role changes
+      window.location.reload();
+    } catch (e) {
+      console.error('Error switching role:', e);
+    }
+  };
+
   const markRead = async (id: string) => {
     try {
       await api.markNotificationRead(id);
@@ -344,6 +357,14 @@ export function Header() {
                 >
                   <UserIcon className="w-4 h-4 text-[#777A7C]" />
                   My Profile
+                </button>
+
+                <button 
+                  onClick={handleRoleSwitch}
+                  className="w-full text-left flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-[#2D3032] hover:bg-[#F7F5F1] transition-all"
+                >
+                  <Mail className="w-4 h-4 text-[#777A7C]" />
+                  Switch to {currentUser?.role === 'HR' || currentUser?.role === 'HR_ADMIN' ? 'Employee View' : 'Admin View'}
                 </button>
 
                 <button 
