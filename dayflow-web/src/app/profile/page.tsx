@@ -50,43 +50,115 @@ export default function ProfilePage() {
             {activeTab}
           </h2>
           
-          <div className="grid grid-cols-2 gap-y-10 gap-x-12">
-            <div>
-              <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Employee ID</div>
-              <div className="text-sm font-medium text-[#2D3032]">EMP0212</div>
-            </div>
-            <div>
-              <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Department</div>
-              <div className="text-sm font-medium text-[#2D3032]">Design</div>
-            </div>
-            <div>
-              <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Designation</div>
-              <div className="text-sm font-medium text-[#2D3032]">UI/UX Designer</div>
-            </div>
-             <div>
-              <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Reporting To</div>
-              <div className="flex items-center gap-2">
-                <div className="w-5 h-5 rounded-full bg-gray-200 overflow-hidden"><img src="https://i.pravatar.cc/150?u=a042581f4e29026024f" /></div>
-                <div className="text-sm font-medium text-[#2D3032]">Jane Cooper</div>
+          {activeTab === 'Overview' && (
+            <div className="grid grid-cols-2 gap-y-10 gap-x-12">
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Employee ID</div>
+                <div className="text-sm font-medium text-[#2D3032]">OIAlin20230212</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Department</div>
+                <div className="text-sm font-medium text-[#2D3032]">Design</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2 flex items-center gap-1"><Mail className="w-3 h-3"/> Email</div>
+                <div className="text-sm font-medium text-[#2D3032]">alex.martin@dayflow.com</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2 flex items-center gap-1"><Phone className="w-3 h-3"/> Phone</div>
+                <div className="text-sm font-medium text-[#2D3032]">+1 234 567 8901</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2 flex items-center gap-1"><MapPin className="w-3 h-3"/> Location</div>
+                <div className="text-sm font-medium text-[#2D3032]">Bangalore, India</div>
               </div>
             </div>
-            <div>
-              <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2 flex items-center gap-1"><Mail className="w-3 h-3"/> Email</div>
-              <div className="text-sm font-medium text-[#2D3032]">alex.martin@dayflow.com</div>
+          )}
+
+          {activeTab === 'Personal Information' && (
+            <div className="grid grid-cols-2 gap-y-10 gap-x-12">
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Full Name</div>
+                <div className="text-sm font-medium text-[#2D3032]">Alex Martin</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Date of Birth</div>
+                <div className="text-sm font-medium text-[#2D3032]">15 Aug 1992</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Gender</div>
+                <div className="text-sm font-medium text-[#2D3032]">Male</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Nationality</div>
+                <div className="text-sm font-medium text-[#2D3032]">American</div>
+              </div>
             </div>
-             <div>
-              <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2 flex items-center gap-1"><Phone className="w-3 h-3"/> Phone</div>
-              <div className="text-sm font-medium text-[#2D3032]">+1 234 567 8901</div>
+          )}
+
+          {activeTab === 'Job Information' && (
+            <div className="grid grid-cols-2 gap-y-10 gap-x-12">
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Employee ID</div>
+                <div className="text-sm font-medium text-[#2D3032]">OIAlin20230212</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Department</div>
+                <div className="text-sm font-medium text-[#2D3032]">Design</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Designation</div>
+                <div className="text-sm font-medium text-[#2D3032]">UI/UX Designer</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Reporting To</div>
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-full bg-gray-200 overflow-hidden"><img src="https://i.pravatar.cc/150?u=a042581f4e29026024f" /></div>
+                  <div className="text-sm font-medium text-[#2D3032]">Jane Cooper</div>
+                </div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2 flex items-center gap-1"><Calendar className="w-3 h-3"/> Join Date</div>
+                <div className="text-sm font-medium text-[#2D3032]">12 Jan 2023</div>
+              </div>
             </div>
-             <div>
-              <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2 flex items-center gap-1"><Calendar className="w-3 h-3"/> Join Date</div>
-              <div className="text-sm font-medium text-[#2D3032]">12 Jan 2023</div>
+          )}
+
+          {activeTab === 'Salary Information' && (
+            <div className="grid grid-cols-2 gap-y-10 gap-x-12">
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Base Salary</div>
+                <div className="text-sm font-medium text-[#2D3032]">₹85,000 / month</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Bank Name</div>
+                <div className="text-sm font-medium text-[#2D3032]">HDFC Bank</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2">Account Number</div>
+                <div className="text-sm font-medium text-[#2D3032]">XXXX XXXX 1234</div>
+              </div>
             </div>
-            <div>
-              <div className="text-[11px] font-semibold text-[#9A9C9D] uppercase tracking-wider mb-2 flex items-center gap-1"><MapPin className="w-3 h-3"/> Location</div>
-              <div className="text-sm font-medium text-[#2D3032]">Bangalore, India</div>
+          )}
+
+          {activeTab === 'Documents' && (
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center justify-between p-4 border border-[#E6E3DE] rounded-xl">
+                <div className="flex items-center gap-3">
+                  <Briefcase className="text-[#7FAF3F] w-5 h-5" />
+                  <span className="text-sm font-medium text-[#2D3032]">Offer Letter.pdf</span>
+                </div>
+                <button className="text-xs font-semibold text-[#7FAF3F]">Download</button>
+              </div>
+              <div className="flex items-center justify-between p-4 border border-[#E6E3DE] rounded-xl">
+                <div className="flex items-center gap-3">
+                  <MapPin className="text-[#7FAF3F] w-5 h-5" />
+                  <span className="text-sm font-medium text-[#2D3032]">ID Proof.pdf</span>
+                </div>
+                <button className="text-xs font-semibold text-[#7FAF3F]">Download</button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
