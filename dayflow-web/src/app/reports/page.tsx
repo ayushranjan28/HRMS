@@ -19,7 +19,7 @@ export default function ReportsPage() {
     totalEmployees: 0,
     avgAttendance: '0%',
     totalLeaves: 0,
-    payrollThisMonth: '$0',
+    payrollThisMonth: '₹0',
     overtimeHours: '0h'
   });
   const [attendanceTrend, setAttendanceTrend] = useState<any[]>([]);
@@ -67,7 +67,7 @@ export default function ReportsPage() {
       rows = leaveBreakdown.map(l => [l.name, l.value]);
       fileName = 'Leave_Analytics';
     } else {
-      headers = ['Department', 'Headcount', 'Salary Cost ($)'];
+      headers = ['Department', 'Headcount', 'Salary Cost (₹)'];
       rows = payrollBreakdown.map(p => [p.name, p.value, p.payroll]);
       fileName = 'Payroll_Headcount_Analytics';
     }
@@ -248,7 +248,7 @@ export default function ReportsPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Department Salary distribution */}
               <div className="bg-white rounded-2xl p-8 border border-[#E6E3DE] shadow-sm flex flex-col h-[400px] lg:col-span-2">
-                <h2 className="text-[16px] font-bold text-[#2D3032] mb-6">Payroll Budget by Department ($)</h2>
+                <h2 className="text-[16px] font-bold text-[#2D3032] mb-6">Payroll Budget by Department (₹)</h2>
                 <div className="flex-1 w-full min-w-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={payrollBreakdown} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
@@ -271,7 +271,7 @@ export default function ReportsPage() {
                         <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: dept.color }}></div>
                         <span className="font-bold text-[#2D3032]">{dept.name}</span>
                       </div>
-                      <span className="font-extrabold text-[#777A7C]">${dept.payroll?.toLocaleString()}</span>
+                      <span className="font-extrabold text-[#777A7C]">₹{dept.payroll?.toLocaleString('en-IN')}</span>
                     </div>
                   ))}
                 </div>

@@ -392,7 +392,7 @@ export default function AuthPage() {
             <div className="bg-[#CAB5F5]/10 border border-[#CAB5F5]/30 rounded-[14px] p-3.5 text-[11px] text-[#412A6E] leading-relaxed">
               <span className="font-bold">🔑 System Mock Login Credentials:</span>
               <div className="mt-1">
-                <strong>Admin Login ID:</strong> <code className="bg-white/80 px-1.5 py-0.5 rounded font-mono">OIALMA20220001</code>
+                <strong>Admin Login ID:</strong> <code className="bg-white/80 px-1.5 py-0.5 rounded font-mono">OIALMA20220008</code>
               </div>
               <div className="mt-0.5">
                 <strong>Employee Login ID:</strong> <code className="bg-white/80 px-1.5 py-0.5 rounded font-mono">OIJACO20200001</code>

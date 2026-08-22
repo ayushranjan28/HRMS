@@ -336,7 +336,7 @@ export default function EmployeeProfile({ params }: PageProps) {
                   {isEditing ? (
                     <input type="number" name="baseSalary" value={formData.baseSalary} onChange={handleInputChange} className="w-full bg-[#F7F5F1] rounded px-2.5 py-1.5 text-xs outline-none focus:ring-1 focus:ring-[#7FAF3F]" />
                   ) : (
-                    <span className="text-xs font-bold text-[#2D3032]">${employee.baseSalary?.toLocaleString() || '4,000'} / Month</span>
+                    <span className="text-xs font-bold text-[#2D3032]">₹{employee.baseSalary?.toLocaleString('en-IN') || '4,000'} / Month</span>
                   )}
                 </div>
                 <div>
@@ -505,11 +505,11 @@ export default function EmployeeProfile({ params }: PageProps) {
                     payrollHistory.map((pay) => (
                       <tr key={pay.id} className="hover:bg-[#F7F5F1]/30 transition-colors">
                         <td className="py-3 px-4 font-bold text-xs">{pay.payrollMonth}</td>
-                        <td className="py-3 px-4 text-xs font-semibold">${pay.basicSalary?.toLocaleString()}</td>
-                        <td className="py-3 px-4 text-xs">${pay.allowances?.toLocaleString()}</td>
-                        <td className="py-3 px-4 text-xs font-bold">${pay.grossSalary?.toLocaleString()}</td>
-                        <td className="py-3 px-4 text-xs text-[#E56B65] font-semibold">${pay.totalDeductions?.toLocaleString()}</td>
-                        <td className="py-3 px-4 text-xs text-[#7FAF3F] font-bold">${pay.netSalary?.toLocaleString()}</td>
+                        <td className="py-3 px-4 text-xs font-semibold">₹{pay.basicSalary?.toLocaleString('en-IN')}</td>
+                        <td className="py-3 px-4 text-xs">₹{pay.allowances?.toLocaleString('en-IN')}</td>
+                        <td className="py-3 px-4 text-xs font-bold">₹{pay.grossSalary?.toLocaleString('en-IN')}</td>
+                        <td className="py-3 px-4 text-xs text-[#E56B65] font-semibold">₹{pay.totalDeductions?.toLocaleString('en-IN')}</td>
+                        <td className="py-3 px-4 text-xs text-[#7FAF3F] font-bold">₹{pay.netSalary?.toLocaleString('en-IN')}</td>
                         <td className="py-3 px-4">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold ${
                             pay.status === 'Paid' ? 'bg-[#7FAF3F]/10 text-[#7FAF3F]' : 'bg-[#E5A83B]/10 text-[#E5A83B]'

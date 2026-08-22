@@ -272,12 +272,12 @@ export default function PayrollControl() {
                         <div className="font-bold text-[#2D3032]">{rec.employeeName}</div>
                         <div className="text-[10px] text-[#777A7C] font-semibold">{rec.employeeId} • {rec.department}</div>
                       </td>
-                      <td className="py-4 px-6 text-xs font-semibold">${rec.basicSalary?.toLocaleString()}</td>
-                      <td className="py-4 px-6 text-xs">${rec.allowances?.toLocaleString()}</td>
-                      <td className="py-4 px-6 text-xs font-medium text-[#7FAF3F]">+${otBonus?.toLocaleString()}</td>
-                      <td className="py-4 px-6 text-xs text-[#E56B65] font-semibold">-${rec.otherDeductions?.toLocaleString()}</td>
-                      <td className="py-4 px-6 text-xs text-[#E56B65]">-${taxPF?.toLocaleString()}</td>
-                      <td className="py-4 px-6 text-sm font-bold text-[#2D3032]">${rec.netSalary?.toLocaleString()}</td>
+                      <td className="py-4 px-6 text-xs font-semibold">₹{rec.basicSalary?.toLocaleString('en-IN')}</td>
+                      <td className="py-4 px-6 text-xs">₹{rec.allowances?.toLocaleString('en-IN')}</td>
+                      <td className="py-4 px-6 text-xs font-medium text-[#7FAF3F]">+₹{otBonus?.toLocaleString('en-IN')}</td>
+                      <td className="py-4 px-6 text-xs text-[#E56B65] font-semibold">-₹{rec.otherDeductions?.toLocaleString('en-IN')}</td>
+                      <td className="py-4 px-6 text-xs text-[#E56B65]">-₹{taxPF?.toLocaleString('en-IN')}</td>
+                      <td className="py-4 px-6 text-sm font-bold text-[#2D3032]">₹{rec.netSalary?.toLocaleString('en-IN')}</td>
                       <td className="py-4 px-6">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold ${
                           rec.status === 'Approved' ? 'bg-[#7FAF3F]/10 text-[#7FAF3F]' :
@@ -334,37 +334,37 @@ export default function PayrollControl() {
             <form onSubmit={handleEditSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[10px] font-bold text-[#777A7C] uppercase tracking-wider mb-1.5">Basic Salary ($)</label>
+                  <label className="block text-[10px] font-bold text-[#777A7C] uppercase tracking-wider mb-1.5">Basic Salary (₹)</label>
                   <input type="number" value={formPay.basicSalary} onChange={(e) => setFormPay(prev => ({ ...prev, basicSalary: parseFloat(e.target.value) || 0 }))} className="w-full bg-[#F7F5F1] rounded-lg px-3 py-2 text-sm outline-none" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-[#777A7C] uppercase tracking-wider mb-1.5">Allowances ($)</label>
+                  <label className="block text-[10px] font-bold text-[#777A7C] uppercase tracking-wider mb-1.5">Allowances (₹)</label>
                   <input type="number" value={formPay.allowances} onChange={(e) => setFormPay(prev => ({ ...prev, allowances: parseFloat(e.target.value) || 0 }))} className="w-full bg-[#F7F5F1] rounded-lg px-3 py-2 text-sm outline-none" />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[10px] font-bold text-[#777A7C] uppercase tracking-wider mb-1.5">Bonus ($)</label>
+                  <label className="block text-[10px] font-bold text-[#777A7C] uppercase tracking-wider mb-1.5">Bonus (₹)</label>
                   <input type="number" value={formPay.bonus} onChange={(e) => setFormPay(prev => ({ ...prev, bonus: parseFloat(e.target.value) || 0 }))} className="w-full bg-[#F7F5F1] rounded-lg px-3 py-2 text-sm outline-none" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-[#777A7C] uppercase tracking-wider mb-1.5">Overtime ($)</label>
+                  <label className="block text-[10px] font-bold text-[#777A7C] uppercase tracking-wider mb-1.5">Overtime (₹)</label>
                   <input type="number" value={formPay.overtime} onChange={(e) => setFormPay(prev => ({ ...prev, overtime: parseFloat(e.target.value) || 0 }))} className="w-full bg-[#F7F5F1] rounded-lg px-3 py-2 text-sm outline-none" />
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="block text-[10px] font-bold text-[#777A7C] uppercase tracking-wider mb-1.5">Tax ($)</label>
+                  <label className="block text-[10px] font-bold text-[#777A7C] uppercase tracking-wider mb-1.5">Tax (₹)</label>
                   <input type="number" value={formPay.tax} onChange={(e) => setFormPay(prev => ({ ...prev, tax: parseFloat(e.target.value) || 0 }))} className="w-full bg-[#F7F5F1] rounded-lg px-2 py-2 text-xs outline-none" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-[#777A7C] uppercase tracking-wider mb-1.5">PF ($)</label>
+                  <label className="block text-[10px] font-bold text-[#777A7C] uppercase tracking-wider mb-1.5">PF (₹)</label>
                   <input type="number" value={formPay.pf} onChange={(e) => setFormPay(prev => ({ ...prev, pf: parseFloat(e.target.value) || 0 }))} className="w-full bg-[#F7F5F1] rounded-lg px-2 py-2 text-xs outline-none" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-[#777A7C] uppercase tracking-wider mb-1.5">Other Ded ($)</label>
+                  <label className="block text-[10px] font-bold text-[#777A7C] uppercase tracking-wider mb-1.5">Other Ded (₹)</label>
                   <input type="number" value={formPay.otherDeductions} onChange={(e) => setFormPay(prev => ({ ...prev, otherDeductions: parseFloat(e.target.value) || 0 }))} className="w-full bg-[#F7F5F1] rounded-lg px-2 py-2 text-xs outline-none" />
                 </div>
               </div>
@@ -426,50 +426,52 @@ export default function PayrollControl() {
                 <span className="text-[10px] font-bold text-[#7FAF3F] uppercase tracking-wider block border-b border-[#E6E3DE] pb-1">Earnings</span>
                 <div className="flex justify-between text-xs">
                   <span className="text-[#777A7C]">Basic Salary</span>
-                  <span className="font-semibold">${activeRecord.basicSalary?.toLocaleString()}</span>
+                  <span className="font-semibold">₹{activeRecord.basicSalary?.toLocaleString('en-IN')}</span>
                 </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-[#777A7C]">HRA & Allowances</span>
-                  <span className="font-semibold">${activeRecord.allowances?.toLocaleString()}</span>
+                <div className="flex justify-between items-center py-2.5 border-b border-[#E6E3DE]/50">
+                  <span className="text-[#777A7C] font-medium text-xs flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-[#E5A83B]"></div> Allowances</span>
+                  <span className="font-semibold">₹{activeRecord.allowances?.toLocaleString('en-IN')}</span>
                 </div>
                 {activeRecord.bonus > 0 && (
-                  <div className="flex justify-between text-xs">
-                    <span className="text-[#777A7C]">Bonuses</span>
-                    <span className="font-semibold">${activeRecord.bonus?.toLocaleString()}</span>
+                  <div className="flex justify-between items-center py-2.5 border-b border-[#E6E3DE]/50">
+                    <span className="text-[#777A7C] font-medium text-xs flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-[#7FAF3F]"></div> Bonus</span>
+                    <span className="font-semibold">₹{activeRecord.bonus?.toLocaleString('en-IN')}</span>
                   </div>
                 )}
                 {activeRecord.overtime > 0 && (
-                  <div className="flex justify-between text-xs">
-                    <span className="text-[#777A7C]">Overtime Pay</span>
-                    <span className="font-semibold">${activeRecord.overtime?.toLocaleString()}</span>
+                  <div className="flex justify-between items-center py-2.5 border-b border-[#E6E3DE]/50">
+                    <span className="text-[#777A7C] font-medium text-xs flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-[#7A70C7]"></div> Overtime</span>
+                    <span className="font-semibold">₹{activeRecord.overtime?.toLocaleString('en-IN')}</span>
                   </div>
                 )}
-                <div className="flex justify-between text-xs font-bold border-t border-dashed border-[#E6E3DE] pt-2 mt-2">
-                  <span>Gross Salary</span>
-                  <span>${activeRecord.grossSalary?.toLocaleString()}</span>
+                <div className="flex justify-between items-center p-3 bg-[#F7F5F1] rounded-b-xl text-xs font-bold text-[#2D3032]">
+                  <span>Gross Earnings</span>
+                  <span>₹{activeRecord.grossSalary?.toLocaleString('en-IN')}</span>
                 </div>
               </div>
 
               {/* Deductions */}
               <div className="space-y-2">
                 <span className="text-[10px] font-bold text-[#E56B65] uppercase tracking-wider block border-b border-[#E6E3DE] pb-1">Deductions</span>
-                <div className="flex justify-between text-xs">
-                  <span className="text-[#777A7C]">Income Tax</span>
-                  <span className="font-semibold">${activeRecord.tax?.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-[#777A7C]">Provident Fund</span>
-                  <span className="font-semibold">${activeRecord.pf?.toLocaleString()}</span>
-                </div>
-                {activeRecord.otherDeductions > 0 && (
-                  <div className="flex justify-between text-xs">
-                    <span className="text-[#777A7C]">Other Deductions</span>
-                    <span className="font-semibold">${activeRecord.otherDeductions?.toLocaleString()}</span>
+                <div className="p-3 text-xs">
+                  <div className="flex justify-between items-center py-2.5 border-b border-[#E6E3DE]/50">
+                    <span className="text-[#777A7C] font-medium text-xs flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-[#E56B65]"></div> Income Tax</span>
+                    <span className="font-semibold">₹{activeRecord.tax?.toLocaleString('en-IN')}</span>
                   </div>
-                )}
-                <div className="flex justify-between text-xs font-bold border-t border-dashed border-[#E6E3DE] pt-2 mt-2">
+                  <div className="flex justify-between items-center py-2.5 border-b border-[#E6E3DE]/50">
+                    <span className="text-[#777A7C] font-medium text-xs flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-[#E56B65]"></div> Provident Fund</span>
+                    <span className="font-semibold">₹{activeRecord.pf?.toLocaleString('en-IN')}</span>
+                  </div>
+                  {activeRecord.otherDeductions > 0 && (
+                    <div className="flex justify-between items-center py-2.5 border-b border-[#E6E3DE]/50">
+                      <span className="text-[#777A7C] font-medium text-xs flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-[#E56B65]"></div> Other Deductions</span>
+                      <span className="font-semibold">₹{activeRecord.otherDeductions?.toLocaleString('en-IN')}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex justify-between items-center p-3 bg-[#E56B65]/5 rounded-b-xl text-xs font-bold text-[#E56B65]">
                   <span>Total Deductions</span>
-                  <span>-${activeRecord.totalDeductions?.toLocaleString()}</span>
+                  <span>-₹{activeRecord.totalDeductions?.toLocaleString('en-IN')}</span>
                 </div>
               </div>
             </div>
@@ -480,7 +482,7 @@ export default function PayrollControl() {
                 <span className="text-[10px] font-bold text-[#7FAF3F] uppercase tracking-wider block">Net Payable Amount</span>
                 <span className="text-[9px] text-[#777A7C] block mt-0.5">Calculated Net = Gross - Total Deductions</span>
               </div>
-              <span className="text-2xl font-bold text-[#7FAF3F]">${activeRecord.netSalary?.toLocaleString()}</span>
+              <span className="text-2xl font-bold text-[#7FAF3F]">₹{activeRecord.netSalary?.toLocaleString('en-IN')}</span>
             </div>
 
             {/* Modal actions */}

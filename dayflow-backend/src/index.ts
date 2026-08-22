@@ -150,10 +150,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 
   const user = await prisma.user.findFirst({
     where: { 
-      OR: [
-        { email: (email || '').toLowerCase() },
-        { employeeId: (email || '').toUpperCase() }
-      ]
+      employeeId: (email || '').toUpperCase()
     },
     include: { privateInfo: true, salaryStructure: true },
   });
@@ -161,6 +158,13 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
   if (!user || !compareSync(password, user.passwordHash)) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
+
+  activeSessionUser = user;
+  res.json({
+    message: 'Logged in successfully',
+    user: userToAuthUser(user),
+    employee: userToEmployee(user),
+  });
 });
 
 app.post('/api/auth/logout', (req: Request, res: Response) => {
@@ -929,30 +933,30 @@ app.get('/api/payroll', async (req: Request, res: Response) => {
   const currentPayload = {
     month: 'July 2026',
     paidOn: '30 Jul 2026',
-    netSalary: `$${netSalary.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+    netSalary: `₹${netSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
     earnings: {
-      total: `$${gross.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-      basic: `$${basicVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-      house: `$${Math.round(basicVal * 0.25).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-      conveyance: `$${Math.round(basicVal * 0.10).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-      other: '$0.00',
+      total: `₹${gross.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+      basic: `₹${basicVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+      house: `₹${Math.round(basicVal * 0.25).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+      conveyance: `₹${Math.round(basicVal * 0.10).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+      other: '₹0.00',
     },
     deductions: {
-      total: `$${totalDeductions.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-      providentFund: `$${pfVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-      professionalTax: '$200.00',
-      incomeTax: `$${taxVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-      other: '$0.00',
+      total: `₹${totalDeductions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+      providentFund: `₹${pfVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+      professionalTax: '₹200.00',
+      incomeTax: `₹${taxVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+      other: '₹0.00',
     },
   };
 
   const historyList = user.payrolls.map(p => ({
     month: `${monthNames[p.month - 1]?.slice(0, 3)} ${p.year}`,
-    amount: `$${Number(p.netSalary).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+    amount: `₹${Number(p.netSalary).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
   }));
 
   if (historyList.length === 0) {
-    historyList.push({ month: 'Jul 2026', amount: `$${netSalary.toLocaleString('en-US', { minimumFractionDigits: 2 })}` });
+    historyList.push({ month: 'Jul 2026', amount: `₹${netSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` });
   }
 
   res.json({ current: currentPayload, history: historyList });
@@ -1072,7 +1076,7 @@ app.put('/api/payroll/:id/approve', requireAdmin, async (req: Request, res: Resp
       userId: payroll.userId,
       type: 'PAYROLL',
       title: 'Payslip Available',
-      message: `Your payslip for ${payroll.year}-${String(payroll.month).padStart(2, '0')} is ready. Net: $${Number(payroll.netSalary).toLocaleString()}`,
+      message: `Your payslip for ${payroll.year}-${String(payroll.month).padStart(2, '0')} is ready. Net: ₹${Number(payroll.netSalary).toLocaleString('en-IN')}`,
     },
   });
 
@@ -1109,7 +1113,7 @@ app.get('/api/reports/overview', async (req: Request, res: Response) => {
       totalEmployees,
       avgAttendance: `${avgAttendance}%`,
       totalLeaves,
-      payrollThisMonth: `$${payrollCost.toLocaleString()}`,
+      payrollThisMonth: `₹${payrollCost.toLocaleString('en-IN')}`,
       overtimeHours: '32h 15m',
     },
   });
