@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import { compareSync, hashSync } from 'bcryptjs';
 import path from 'path';
 import prisma from './prisma';
-import { Role, LeaveStatus, LeaveType, AttendanceStatus } from '@prisma/client';
+import { Role, LeaveStatus, LeaveType, AttendanceStatus, CorrectionStatus } from '@prisma/client';
 import * as store from './store';
 import { db, saveBase64File, ExpenseClaim, ExpenseCategory, ExpenseBill } from './db';
 
@@ -495,6 +495,156 @@ app.put('/api/attendance/:id', requireAdmin, async (req: Request, res: Response)
   res.json(updated);
 });
 
+
+// ================= ATTENDANCE REGULARIZATION =================
+
+// Employee submits a correction request
+app.post('/api/attendance/regularization', async (req: Request, res: Response) => {
+  const { date, requestedStatus, reason } = req.body;
+  if (!date || !requestedStatus || !reason) {
+    return res.status(400).json({ error: 'date, requestedStatus and reason are required' });
+  }
+
+  const user = await prisma.user.findFirst({ where: { email: req.headers['x-user-email'] as string } });
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+  // Determine current status for that date
+  const existing = await prisma.attendance.findFirst({
+    where: { userId: user.id, date: new Date(date) }
+  });
+  const currentStatus = existing ? existing.status : AttendanceStatus.ABSENT;
+
+  const statusMap: Record<string, AttendanceStatus> = {
+    Present: AttendanceStatus.PRESENT,
+    'Half Day': AttendanceStatus.HALF_DAY,
+    'On Leave': AttendanceStatus.LEAVE,
+    Absent: AttendanceStatus.ABSENT,
+  };
+  const reqStatus = statusMap[requestedStatus] || AttendanceStatus.PRESENT;
+
+  const correction = await prisma.attendanceCorrection.create({
+    data: {
+      userId: user.id,
+      date: new Date(date),
+      currentStatus,
+      requestedStatus: reqStatus,
+      reason,
+      status: CorrectionStatus.PENDING,
+    },
+    include: { user: true },
+  });
+
+  res.json({
+    id: correction.id,
+    date: correction.date.toISOString().split('T')[0],
+    currentStatus: correction.currentStatus,
+    requestedStatus: correction.requestedStatus,
+    reason: correction.reason,
+    status: correction.status,
+    employeeName: correction.user.fullName,
+    createdAt: correction.createdAt,
+  });
+});
+
+// Get regularization requests (employee sees own; HR sees all)
+app.get('/api/attendance/regularization', async (req: Request, res: Response) => {
+  const user = await prisma.user.findFirst({ where: { email: req.headers['x-user-email'] as string } });
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+  const where: any = user.role === Role.HR_ADMIN ? {} : { userId: user.id };
+  if (req.query.status) where.status = req.query.status;
+
+  const corrections = await prisma.attendanceCorrection.findMany({
+    where,
+    include: { user: true },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const statusLabelMap: Record<string, string> = {
+    PRESENT: 'Present', HALF_DAY: 'Half Day', ABSENT: 'Absent', LEAVE: 'On Leave'
+  };
+
+  res.json(corrections.map(c => ({
+    id: c.id,
+    employeeName: c.user.fullName,
+    employeeId: c.user.employeeId,
+    department: c.user.department || 'Unknown',
+    date: c.date.toISOString().split('T')[0],
+    currentStatus: statusLabelMap[c.currentStatus] || c.currentStatus,
+    requestedStatus: statusLabelMap[c.requestedStatus] || c.requestedStatus,
+    reason: c.reason,
+    status: c.status,
+    adminComment: c.adminComment,
+    createdAt: c.createdAt,
+  })));
+});
+
+// HR approves a regularization request
+app.post('/api/attendance/regularization/:id/approve', async (req: Request, res: Response) => {
+  const hrUser = await prisma.user.findFirst({ where: { email: req.headers['x-user-email'] as string } });
+  if (!hrUser || hrUser.role !== Role.HR_ADMIN) return res.status(403).json({ error: 'Forbidden' });
+
+  const correction = await prisma.attendanceCorrection.findUnique({
+    where: { id: req.params.id },
+    include: { user: true },
+  });
+  if (!correction) return res.status(404).json({ error: 'Correction request not found' });
+  if (correction.status !== CorrectionStatus.PENDING) {
+    return res.status(400).json({ error: 'Request is not pending' });
+  }
+
+  // Update correction status
+  const updated = await prisma.attendanceCorrection.update({
+    where: { id: correction.id },
+    data: { status: CorrectionStatus.APPROVED, adminComment: req.body.comment || null },
+  });
+
+  // Upsert the attendance record for that date
+  const existing = await prisma.attendance.findFirst({
+    where: { userId: correction.userId, date: correction.date }
+  });
+
+  if (existing) {
+    await prisma.attendance.update({
+      where: { id: existing.id },
+      data: {
+        status: correction.requestedStatus,
+        checkIn: correction.requestedStatus !== AttendanceStatus.ABSENT ? new Date(`${correction.date.toISOString().split('T')[0]}T09:00:00`) : null,
+        checkOut: correction.requestedStatus !== AttendanceStatus.ABSENT ? new Date(`${correction.date.toISOString().split('T')[0]}T18:00:00`) : null,
+        workHours: correction.requestedStatus === AttendanceStatus.PRESENT ? 9 : correction.requestedStatus === AttendanceStatus.HALF_DAY ? 4.5 : 0,
+      },
+    });
+  } else {
+    await prisma.attendance.create({
+      data: {
+        userId: correction.userId,
+        date: correction.date,
+        status: correction.requestedStatus,
+        checkIn: correction.requestedStatus !== AttendanceStatus.ABSENT ? new Date(`${correction.date.toISOString().split('T')[0]}T09:00:00`) : null,
+        checkOut: correction.requestedStatus !== AttendanceStatus.ABSENT ? new Date(`${correction.date.toISOString().split('T')[0]}T18:00:00`) : null,
+        workHours: correction.requestedStatus === AttendanceStatus.PRESENT ? 9 : correction.requestedStatus === AttendanceStatus.HALF_DAY ? 4.5 : 0,
+      },
+    });
+  }
+
+  res.json({ success: true, correction: updated });
+});
+
+// HR rejects a regularization request
+app.post('/api/attendance/regularization/:id/reject', async (req: Request, res: Response) => {
+  const hrUser = await prisma.user.findFirst({ where: { email: req.headers['x-user-email'] as string } });
+  if (!hrUser || hrUser.role !== Role.HR_ADMIN) return res.status(403).json({ error: 'Forbidden' });
+
+  const correction = await prisma.attendanceCorrection.findUnique({ where: { id: req.params.id } });
+  if (!correction) return res.status(404).json({ error: 'Correction request not found' });
+
+  const updated = await prisma.attendanceCorrection.update({
+    where: { id: correction.id },
+    data: { status: CorrectionStatus.REJECTED, adminComment: req.body.comment || null },
+  });
+
+  res.json({ success: true, correction: updated });
+});
 
 // ================= LEAVES (ADMIN - from DB) =================
 app.get('/api/leaves', async (req: Request, res: Response) => {

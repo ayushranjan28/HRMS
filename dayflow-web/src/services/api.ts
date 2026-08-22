@@ -98,6 +98,27 @@ export const updateAttendance = async (id: string, data: any) => {
   return response.data;
 };
 
+// Attendance Regularization
+export const submitRegularization = async (data: { date: string; requestedStatus: string; reason: string }) => {
+  const response = await api.post('/attendance/regularization', data);
+  return response.data;
+};
+
+export const getRegularizations = async (params?: { status?: string }) => {
+  const response = await api.get('/attendance/regularization', { params });
+  return response.data;
+};
+
+export const approveRegularization = async (id: string, comment?: string) => {
+  const response = await api.post(`/attendance/regularization/${id}/approve`, { comment });
+  return response.data;
+};
+
+export const rejectRegularization = async (id: string, comment?: string) => {
+  const response = await api.post(`/attendance/regularization/${id}/reject`, { comment });
+  return response.data;
+};
+
 // Leaves
 export const getLeaves = async () => {
   const response = await api.get('/leaves');

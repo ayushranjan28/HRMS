@@ -95,21 +95,54 @@ model User {
   employees    User[]   @relation("ManagerEmployees")
 
   // Relations
-  attendance      Attendance[]
-  leaveRequests   LeaveRequest[]
-  leaveBalances   LeaveBalance[]
-  payrolls        Payroll[]
-  privateInfo     PrivateInfo?
-  salaryStructure SalaryStructure?
-  documents       Document[]
-  notifications   Notification[]
-  calendarEvents  CalendarEvent[] @relation("UserEvents")
+  attendance            Attendance[]
+  leaveRequests         LeaveRequest[]
+  leaveBalances         LeaveBalance[]
+  payrolls              Payroll[]
+  privateInfo           PrivateInfo?
+  salaryStructure       SalaryStructure?
+  documents             Document[]
+  notifications         Notification[]
+  calendarEvents        CalendarEvent[]      @relation("UserEvents")
+  attendanceCorrections AttendanceCorrection[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([department])
   @@index([managerId])
+}
+
+// ============================================================
+// ATTENDANCE CORRECTION (REGULARIZATION)
+// ============================================================
+
+enum CorrectionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model AttendanceCorrection {
+  id              String           @id @default(uuid())
+
+  userId          String
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date            DateTime         @db.Date
+  currentStatus   AttendanceStatus
+  requestedStatus AttendanceStatus
+  reason          String
+
+  status          CorrectionStatus @default(PENDING)
+  adminComment    String?
+
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([date])
 }
 
 // ============================================================
