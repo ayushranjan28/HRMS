@@ -52,6 +52,15 @@ export default function EmployeeDashboard() {
     loadData();
   }, []);
 
+  const formatCheckInTime = (checkInStr: string) => {
+    if (!checkInStr) return '';
+    const d = new Date(checkInStr);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    return checkInStr;
+  };
+
   const handleMarkAttendance = async (type: 'checkin' | 'checkout') => {
     setMarkingStatus(true);
     if (!navigator.geolocation) {
@@ -75,7 +84,8 @@ export default function EmployeeDashboard() {
       (error) => {
         alert("Failed to get location. Please allow location access to mark attendance.");
         setMarkingStatus(false);
-      }
+      },
+      { timeout: 5000 }
     );
   };
 
@@ -132,7 +142,7 @@ export default function EmployeeDashboard() {
               {todayRecord?.checkIn && !todayRecord?.checkOut ? 'Checked In' : todayRecord?.checkOut ? 'Checked Out' : 'Not Checked In'}
             </div>
             <div className="text-xs text-[#9A9C9D] mt-1">
-              {todayRecord?.checkIn ? `At ${new Date(todayRecord.checkIn).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}` : 'Use button to mark attendance'}
+              {todayRecord?.checkIn ? `At ${formatCheckInTime(todayRecord.checkIn)}` : 'Use button to mark attendance'}
             </div>
           </div>
           <div className="flex flex-col gap-2">
