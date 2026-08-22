@@ -137,7 +137,7 @@ app.get('/api/dashboard', async (req: Request, res: Response) => {
     
     let formattedUpcoming = upcomingEvents.map(e => ({
       id: e.id,
-      type: e.type === 'VIDEO' ? 'video' : 'calendar',
+      type: (e.type as string) === 'VIDEO' ? 'video' : 'calendar',
       title: e.title,
       time: `${formatTime(e.startTime)} - ${formatTime(e.endTime)}`
     }));
